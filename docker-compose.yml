@@ -1,0 +1,31 @@
+services:
+
+  alpha-trading-bot-okx:
+    image: hamgua/alpha-trading-bot-okx:v4.4.16
+    container_name: alpha-trading-bot-okx
+    restart: always
+    ports:
+      - "8501:8501"
+    volumes:
+      - /etc/localtime:/etc/localtime
+      - ./alpha-trading-bot-okx/.env:/app/.env
+      # - ./alpha-trading-bot-okx/data:/app/data
+      - ./alpha-trading-bot-okx/logs:/app/logs
+      - ./alpha-trading-bot-okx/data_json:/app/data_json
+    environment:
+      # 时区上海
+      TZ : Asia/Shanghai
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    #healthcheck:
+    #  test: ["CMD", "sh", "-c", "curl -f http://localhost:8501/_stcore/health && pgrep -f 'python.*run.py'"]
+    #  interval: 30s
+    #  timeout: 10s
+    #  retries: 3
+    #  start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
