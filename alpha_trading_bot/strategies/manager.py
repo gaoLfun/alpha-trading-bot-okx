@@ -104,46 +104,46 @@ class StrategyManager(BaseComponent):
 
                 # 根据投资类型生成对应的策略信号
                 if investment_type == 'conservative':
-                    # 稳健型策略：低买高卖，低频次交易
-                    if price_position < 0.2:
+                    # 稳健型策略：宽区间，低频次交易，提前锁定利润
+                    if price_position < 0.3:  # 较早买入，降低踏空风险
                         signals.append({
                             'type': 'buy',
                             'confidence': 0.7,
-                            'reason': '稳健策略：价格处于相对低位，适合建仓',
+                            'reason': '稳健策略：价格回调到合理区间，适合建仓',
                             'source': 'conservative_strategy',
                             'timestamp': datetime.now()
                         })
-                    elif price_position > 0.8:
+                    elif price_position > 0.7:  # 较早卖出，锁定利润
                         signals.append({
                             'type': 'sell',
                             'confidence': 0.7,
-                            'reason': '稳健策略：价格处于相对高位，考虑减仓',
+                            'reason': '稳健策略：价格反弹到合理高位，考虑减仓锁定利润',
                             'source': 'conservative_strategy',
                             'timestamp': datetime.now()
                         })
 
                 elif investment_type == 'moderate':
-                    # 中等型策略：趋势跟踪，中等频次交易
-                    if price_position < 0.3:
+                    # 中等型策略：中等区间，趋势跟踪，平衡风险收益
+                    if price_position < 0.25:  # 中等买入门槛
                         signals.append({
                             'type': 'buy',
                             'confidence': 0.75,
-                            'reason': '中等策略：价格回调，可能存在买入机会',
+                            'reason': '中等策略：价格回调明显，趋势跟踪买入',
                             'source': 'moderate_strategy',
                             'timestamp': datetime.now()
                         })
-                    elif price_position > 0.7:
+                    elif price_position > 0.75:  # 中等卖出门槛
                         signals.append({
                             'type': 'sell',
                             'confidence': 0.75,
-                            'reason': '中等策略：价格反弹，可能存在卖出机会',
+                            'reason': '中等策略：价格反弹明显，趋势跟踪卖出',
                             'source': 'moderate_strategy',
                             'timestamp': datetime.now()
                         })
 
                 elif investment_type == 'aggressive':
-                    # 激进型策略：追涨杀跌，高频次交易
-                    if price_position < 0.15:
+                    # 激进型策略：窄区间，高频次交易，追求极致买卖点
+                    if price_position < 0.15:  # 极低点买入，追求最大化收益
                         signals.append({
                             'type': 'buy',
                             'confidence': 0.8,
@@ -151,7 +151,7 @@ class StrategyManager(BaseComponent):
                             'source': 'aggressive_strategy',
                             'timestamp': datetime.now()
                         })
-                    elif price_position > 0.85:
+                    elif price_position > 0.85:  # 极高点卖出，追求最大化利润
                         signals.append({
                             'type': 'sell',
                             'confidence': 0.8,
