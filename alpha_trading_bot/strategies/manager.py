@@ -86,7 +86,7 @@ class StrategyManager(BaseComponent):
 
     async def _generate_strategy_signals(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """生成策略信号"""
-        # 简化实现：基于市场数据生成基础信号
+        # 改进实现：基于多种技术指标生成信号
         signals = []
 
         try:
@@ -95,12 +95,46 @@ class StrategyManager(BaseComponent):
             low = market_data.get('low', price)
 
             if price > 0 and high > low:
-                price_position = (price - low) / (high - low)
+                # 计算技术指标
+                from ..utils.technical import TechnicalIndicators
+                technical_data = TechnicalIndicators.calculate_all_indicators(market_data)
+
+                # 使用改进的横盘检测
+                from .consolidation import ConsolidationDetector
+                consolidation_detector = ConsolidationDetector()
 
                 # 获取当前投资类型配置
                 from ..config import load_config
                 config = load_config()
                 investment_type = config.strategies.investment_type
+                symbol = config.exchange.symbol
+
+                # 检测横盘状态
+                is_consolidation, reason, confidence = consolidation_detector.detect_consolidation(
+                    {**market_data, **technical_data},
+                    symbol
+                )
+
+                # 如果处于高度确认的横盘状态，生成HOLD信号
+                if is_consolidation and confidence > 0.8:
+                    signals.append({
+                        'type': 'hold',
+                        'confidence': confidence,
+                        'reason': f'横盘检测: {reason}',
+                        'source': 'consolidation_detector',
+                        'timestamp': datetime.now()
+                    })
+                    return signals  # 横盘期间减少交易信号
+
+                # 计算价格位置（结合技术指标）
+                if 'bb_upper' in technical_data and 'bb_lower' in technical_data:
+                    # 使用布林带计算价格位置
+                    bb_upper = technical_data['bb_upper']
+                    bb_lower = technical_data['bb_lower']
+                    price_position = (price - bb_lower) / (bb_upper - bb_lower) if bb_upper != bb_lower else 0.5
+                else:
+                    # 回退到传统方法
+                    price_position = (price - low) / (high - low)
 
                 # 根据投资类型生成对应的策略信号
                 if investment_type == 'conservative':

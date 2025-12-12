@@ -1,0 +1,465 @@
+"""
+技术指标计算模块
+提供ATR、布林带、ADX、RSI、MACD等常用技术指标的计算
+"""
+
+import numpy as np
+from typing import List, Optional, Tuple, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
+
+class TechnicalIndicators:
+    """技术指标计算器"""
+
+    @staticmethod
+    def calculate_atr(high: List[float], low: List[float], close: List[float], period: int = 14) -> List[float]:
+        """
+        计算平均真实波幅（ATR）
+
+        Args:
+            high: 最高价列表
+            low: 最低价列表
+            close: 收盘价列表
+            period: 计算周期，默认14
+
+        Returns:
+            ATR值列表
+        """
+        try:
+            if len(high) < period or len(low) < period or len(close) < period:
+                return [0.0] * len(close)
+
+            # 计算真实波幅（TR）
+            tr_values = []
+            for i in range(1, len(close)):
+                high_low = high[i] - low[i]
+                high_close = abs(high[i] - close[i-1])
+                low_close = abs(low[i] - close[i-1])
+                tr = max(high_low, high_close, low_close)
+                tr_values.append(tr)
+
+            # 前period-1个值用简单平均
+            atr_values = [0.0] * period
+            if len(tr_values) >= period:
+                initial_atr = np.mean(tr_values[:period])
+                atr_values[period-1] = initial_atr
+
+                # 计算后续ATR值（使用平滑公式）
+                for i in range(period, len(tr_values)):
+                    atr = (atr_values[i-1] * (period - 1) + tr_values[i]) / period
+                    atr_values.append(atr)
+
+            return atr_values
+
+        except Exception as e:
+            logger.error(f"计算ATR失败: {e}")
+            return [0.0] * len(close)
+
+    @staticmethod
+    def calculate_bollinger_bands(close: List[float], period: int = 20, num_std: float = 2.0) -> Tuple[List[float], List[float], List[float]]:
+        """
+        计算布林带
+
+        Args:
+            close: 收盘价列表
+            period: 计算周期，默认20
+            num_std: 标准差倍数，默认2.0
+
+        Returns:
+            (中轨, 上轨, 下轨)
+        """
+        try:
+            if len(close) < period:
+                return [close[0]] * len(close), [close[0]] * len(close), [close[0]] * len(close)
+
+            middle_band = []
+            upper_band = []
+            lower_band = []
+
+            for i in range(period - 1, len(close)):
+                # 计算SMA
+                sma = np.mean(close[i-period+1:i+1])
+                # 计算标准差
+                std = np.std(close[i-period+1:i+1])
+
+                middle_band.append(sma)
+                upper_band.append(sma + num_std * std)
+                lower_band.append(sma - num_std * std)
+
+            # 前period-1个值用第一个计算值填充
+            if middle_band:
+                first_middle = middle_band[0]
+                first_upper = upper_band[0]
+                first_lower = lower_band[0]
+
+                middle_band = [first_middle] * (period - 1) + middle_band
+                upper_band = [first_upper] * (period - 1) + upper_band
+                lower_band = [first_lower] * (period - 1) + lower_band
+            else:
+                middle_band = [close[0]] * len(close)
+                upper_band = [close[0]] * len(close)
+                lower_band = [close[0]] * len(close)
+
+            return middle_band, upper_band, lower_band
+
+        except Exception as e:
+            logger.error(f"计算布林带失败: {e}")
+            return [close[0]] * len(close), [close[0]] * len(close), [close[0]] * len(close)
+
+    @staticmethod
+    def calculate_adx(high: List[float], low: List[float], close: List[float], period: int = 14) -> List[float]:
+        """
+        计算ADX（平均趋向指数）
+
+        Args:
+            high: 最高价列表
+            low: 最低价列表
+            close: 收盘价列表
+            period: 计算周期，默认14
+
+        Returns:
+            ADX值列表
+        """
+        try:
+            if len(high) < period * 2 or len(low) < period * 2 or len(close) < period * 2:
+                return [0.0] * len(close)
+
+            # 计算TR、+DM、-DM
+            tr_values = []
+            plus_dm_values = []
+            minus_dm_values = []
+
+            for i in range(1, len(close)):
+                # TR
+                high_low = high[i] - low[i]
+                high_close = abs(high[i] - close[i-1])
+                low_close = abs(low[i] - close[i-1])
+                tr = max(high_low, high_close, low_close)
+                tr_values.append(tr)
+
+                # +DM
+                up_move = high[i] - high[i-1]
+                down_move = low[i-1] - low[i]
+                if up_move > down_move and up_move > 0:
+                    plus_dm = up_move
+                else:
+                    plus_dm = 0
+                plus_dm_values.append(plus_dm)
+
+                # -DM
+                if down_move > up_move and down_move > 0:
+                    minus_dm = down_move
+                else:
+                    minus_dm = 0
+                minus_dm_values.append(minus_dm)
+
+            # 计算平滑值
+            atr_values = [0.0] * period
+            plus_di_values = [0.0] * period
+            minus_di_values = [0.0] * period
+            dx_values = [0.0] * period
+
+            if len(tr_values) >= period:
+                # 初始值
+                initial_atr = np.mean(tr_values[:period])
+                initial_plus_dm = np.mean(plus_dm_values[:period])
+                initial_minus_dm = np.mean(minus_dm_values[:period])
+
+                atr_values[period-1] = initial_atr
+                plus_dm_smooth = initial_plus_dm
+                minus_dm_smooth = initial_minus_dm
+
+                # 计算后续值
+                for i in range(period, len(tr_values)):
+                    # 平滑TR
+                    atr = (atr_values[i-1] * (period - 1) + tr_values[i]) / period
+                    atr_values.append(atr)
+
+                    # 平滑+DM和-DM
+                    plus_dm_smooth = (plus_dm_smooth * (period - 1) + plus_dm_values[i]) / period
+                    minus_dm_smooth = (minus_dm_smooth * (period - 1) + minus_dm_values[i]) / period
+
+                    # 计算+DI和-DI
+                    plus_di = 100 * plus_dm_smooth / atr if atr > 0 else 0
+                    minus_di = 100 * minus_dm_smooth / atr if atr > 0 else 0
+
+                    plus_di_values.append(plus_di)
+                    minus_di_values.append(minus_di)
+
+                    # 计算DX
+                    diff = abs(plus_di - minus_di)
+                    sum_val = plus_di + minus_di
+                    dx = 100 * diff / sum_val if sum_val > 0 else 0
+                    dx_values.append(dx)
+
+            # 计算ADX（DX的平滑）
+            adx_values = [0.0] * (period * 2 - 1)
+            if len(dx_values) >= period:
+                initial_adx = np.mean(dx_values[period-1:period*2-1])
+                adx_values[period*2-2] = initial_adx
+
+                for i in range(period*2-1, len(dx_values)):
+                    adx = (adx_values[i-1] * (period - 1) + dx_values[i]) / period
+                    adx_values.append(adx)
+
+            return adx_values
+
+        except Exception as e:
+            logger.error(f"计算ADX失败: {e}")
+            return [0.0] * len(close)
+
+    @staticmethod
+    def calculate_rsi(close: List[float], period: int = 14) -> List[float]:
+        """
+        计算RSI（相对强弱指数）
+
+        Args:
+            close: 收盘价列表
+            period: 计算周期，默认14
+
+        Returns:
+            RSI值列表
+        """
+        try:
+            if len(close) < period + 1:
+                return [50.0] * len(close)
+
+            gains = []
+            losses = []
+
+            # 计算价格变化
+            for i in range(1, len(close)):
+                change = close[i] - close[i-1]
+                if change > 0:
+                    gains.append(change)
+                    losses.append(0)
+                else:
+                    gains.append(0)
+                    losses.append(-change)
+
+            rsi_values = [50.0] * period
+
+            if len(gains) >= period:
+                # 初始平均收益和损失
+                avg_gain = np.mean(gains[:period])
+                avg_loss = np.mean(losses[:period])
+
+                for i in range(period, len(gains)):
+                    # 平滑计算
+                    avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+                    avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+
+                    # 计算RSI
+                    if avg_loss == 0:
+                        rsi = 100.0
+                    else:
+                        rs = avg_gain / avg_loss
+                        rsi = 100 - (100 / (1 + rs))
+
+                    rsi_values.append(rsi)
+
+            return rsi_values
+
+        except Exception as e:
+            logger.error(f"计算RSI失败: {e}")
+            return [50.0] * len(close)
+
+    @staticmethod
+    def calculate_macd(close: List[float], fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> Tuple[List[float], List[float], List[float]]:
+        """
+        计算MACD
+
+        Args:
+            close: 收盘价列表
+            fast_period: 快速EMA周期，默认12
+            slow_period: 慢速EMA周期，默认26
+            signal_period: 信号线周期，默认9
+
+        Returns:
+            (MACD线, 信号线, 柱状图)
+        """
+        try:
+            if len(close) < slow_period + signal_period:
+                return [0.0] * len(close), [0.0] * len(close), [0.0] * len(close)
+
+            # 计算EMA
+            fast_ema = TechnicalIndicators.calculate_ema(close, fast_period)
+            slow_ema = TechnicalIndicators.calculate_ema(close, slow_period)
+
+            # 计算MACD线
+            macd_line = []
+            for i in range(len(slow_ema)):
+                if i < len(fast_ema):
+                    macd = fast_ema[i] - slow_ema[i]
+                    macd_line.append(macd)
+                else:
+                    macd_line.append(0.0)
+
+            # 计算信号线（MACD的EMA）
+            signal_line = TechnicalIndicators.calculate_ema(macd_line, signal_period)
+
+            # 计算柱状图
+            histogram = []
+            for i in range(len(macd_line)):
+                if i < len(signal_line):
+                    hist = macd_line[i] - signal_line[i]
+                    histogram.append(hist)
+                else:
+                    histogram.append(0.0)
+
+            return macd_line, signal_line, histogram
+
+        except Exception as e:
+            logger.error(f"计算MACD失败: {e}")
+            return [0.0] * len(close), [0.0] * len(close), [0.0] * len(close)
+
+    @staticmethod
+    def calculate_sma(close: List[float], period: int) -> List[float]:
+        """
+        计算简单移动平均线（SMA）
+
+        Args:
+            close: 收盘价列表
+            period: 计算周期
+
+        Returns:
+            SMA值列表
+        """
+        try:
+            if len(close) < period:
+                return [close[0]] * len(close)
+
+            sma_values = []
+            for i in range(period - 1, len(close)):
+                sma = np.mean(close[i-period+1:i+1])
+                sma_values.append(sma)
+
+            # 前period-1个值用第一个SMA值填充
+            if sma_values:
+                first_sma = sma_values[0]
+                sma_values = [first_sma] * (period - 1) + sma_values
+            else:
+                sma_values = [close[0]] * len(close)
+
+            return sma_values
+
+        except Exception as e:
+            logger.error(f"计算SMA失败: {e}")
+            return [close[0]] * len(close)
+
+    @staticmethod
+    def calculate_ema(close: List[float], period: int) -> List[float]:
+        """
+        计算指数移动平均线（EMA）
+
+        Args:
+            close: 收盘价列表
+            period: 计算周期
+
+        Returns:
+            EMA值列表
+        """
+        try:
+            if len(close) < period:
+                return [close[0]] * len(close)
+
+            ema_values = []
+            # 初始EMA用SMA计算
+            initial_ema = np.mean(close[:period])
+            ema_values.append(initial_ema)
+
+            # EMA平滑系数
+            multiplier = 2 / (period + 1)
+
+            # 计算后续EMA值
+            for i in range(period, len(close)):
+                ema = (close[i] - ema_values[-1]) * multiplier + ema_values[-1]
+                ema_values.append(ema)
+
+            # 前period-1个值用初始EMA填充
+            ema_values = [initial_ema] * (period - 1) + ema_values
+
+            return ema_values
+
+        except Exception as e:
+            logger.error(f"计算EMA失败: {e}")
+            return [close[0]] * len(close)
+
+    @staticmethod
+    def calculate_all_indicators(market_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        计算所有技术指标
+
+        Args:
+            market_data: 包含OHLCV数据的字典
+
+        Returns:
+            包含所有计算结果的字典
+        """
+        try:
+            close = market_data.get('close', [])
+            high = market_data.get('high', [])
+            low = market_data.get('low', [])
+
+            if not close or len(close) < 50:
+                return {}
+
+            result = {}
+
+            # 价格位置
+            if len(close) > 0:
+                current_price = close[-1]
+                recent_high = max(close[-20:]) if len(close) >= 20 else max(close)
+                recent_low = min(close[-20:]) if len(close) >= 20 else min(close)
+                result['price_position'] = (current_price - recent_low) / (recent_high - recent_low) if recent_high != recent_low else 0.5
+
+            # SMA
+            if len(close) >= 20:
+                result['sma_20'] = TechnicalIndicators.calculate_sma(close, 20)[-1]
+            if len(close) >= 50:
+                result['sma_50'] = TechnicalIndicators.calculate_sma(close, 50)[-1]
+
+            # EMA
+            if len(close) >= 20:
+                result['ema_20'] = TechnicalIndicators.calculate_ema(close, 20)[-1]
+
+            # ATR
+            if len(high) >= 14 and len(low) >= 14 and len(close) >= 14:
+                result['atr'] = TechnicalIndicators.calculate_atr(high, low, close, 14)[-1]
+
+            # 布林带
+            if len(close) >= 20:
+                bb_middle, bb_upper, bb_lower = TechnicalIndicators.calculate_bollinger_bands(close, 20)
+                result['bb_upper'] = bb_upper[-1]
+                result['bb_middle'] = bb_middle[-1]
+                result['bb_lower'] = bb_lower[-1]
+
+            # RSI
+            if len(close) >= 14:
+                rsi_values = TechnicalIndicators.calculate_rsi(close, 14)
+                result['rsi'] = rsi_values[-1]
+
+            # ADX
+            if len(high) >= 28 and len(low) >= 28 and len(close) >= 28:
+                adx_values = TechnicalIndicators.calculate_adx(high, low, close, 14)
+                result['adx'] = adx_values[-1]
+
+            # MACD
+            if len(close) >= 35:
+                macd, signal, histogram = TechnicalIndicators.calculate_macd(close)
+                result['macd'] = macd[-1]
+                result['macd_signal'] = signal[-1]
+                result['macd_histogram'] = histogram[-1]
+
+            # 波动率
+            if len(close) >= 30:
+                returns = [(close[i] - close[i-1]) / close[i-1] for i in range(1, len(close))]
+                volatility_30d = np.std(returns[-30:]) * np.sqrt(365) if len(returns) >= 30 else np.std(returns) * np.sqrt(365)
+                result['volatility_30d'] = volatility_30d
+
+            return result
+
+        except Exception as e:
+            logger.error(f"计算所有技术指标失败: {e}")
+            return {}

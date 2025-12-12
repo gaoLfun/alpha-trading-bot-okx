@@ -1,7 +1,7 @@
 services:
 
   alpha-trading-bot-okx:
-    image: hamgua/alpha-trading-bot-okx:v4.4.16
+    image: hamgua/alpha-trading-bot-okx:v3.0.8
     container_name: alpha-trading-bot-okx
     restart: unless-stopped
     #ports:

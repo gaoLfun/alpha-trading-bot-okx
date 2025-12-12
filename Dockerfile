@@ -24,5 +24,5 @@ COPY  . .
 ENTRYPOINT ["python", "-u", "main.py"]
 
 # docker 构建业务镜像命令
-# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:v3.0.7 ./
-# docker push hamgua/alpha-trading-bot-okx:v3.0.7
+# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:v3.0.8 ./
+# docker push hamgua/alpha-trading-bot-okx:v3.0.8
