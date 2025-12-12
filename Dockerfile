@@ -5,18 +5,13 @@ FROM hamgua/alpha-trading-bot-okx:base_alpine-v1.5.0
 ENV TZ=Asia/Shanghai
 
 # 创建非root用户提高安全性
-RUN useradd -m -u 1000 trader && \
-    mkdir -p /app/logs /app/data_json && \
-    chown -R trader:trader /app
+RUN mkdir -p /app/logs /app/data_json
 
 # 设置工作目录
 WORKDIR /app
 
 # 复制项目文件
-COPY --chown=trader:trader . .
-
-# 切换到非root用户
-USER trader
+COPY  . .
 
 # 暴露Streamlit端口
 #EXPOSE 8501
