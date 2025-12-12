@@ -1,11 +1,12 @@
+version: '3.8'
+
 services:
 
   alpha-trading-bot-okx:
-    image: hamgua/alpha-trading-bot-okx:v3.0.8
+    # 使用修复依赖问题的新镜像
+    image: hamgua/alpha-trading-bot-okx:v3.0.9
     container_name: alpha-trading-bot-okx
     restart: unless-stopped
-    #ports:
-    #  - "8501:8501"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./.env:/app/.env:ro
@@ -17,21 +18,38 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
-    networks:
-      - trading-bot-network
-    #healthcheck:
-    #  test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
-    #  interval: 30s
-    #  timeout: 10s
-    #  retries: 3
-    #  start_period: 60s
+
+    # 添加健康检查
+    # healthcheck:
+    #   test: ["CMD", "python", "-c", "from alpha_trading_bot import create_bot; print('OK')"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 60s
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
         compress: "true"
+    # 默认显示帮助，可以覆盖
+    command: ["--help"]
 
-#networks:
-#  trading-bot-network:
-#    driver: bridge
+
+# 构建和启动命令：
+# 1. 构建基础镜像（修复依赖）：
+#    docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:base_alpine-v1.5.1 -f Dockerfile_base.alpine.fixed ./
+#    docker push hamgua/alpha-trading-bot-okx:base_alpine-v1.5.1
+#
+# 2. 构建业务镜像：
+#    docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:v3.0.9 -f Dockerfile.fixed ./
+#    docker push hamgua/alpha-trading-bot-okx:v3.0.9
+#
+# 3. 使用修复后的配置启动：
+#    docker-compose -f docker-compose.fixed.yml up -d
+#
+# 4. 查看日志：
+#    docker-compose -f docker-compose.fixed.yml logs -f
+#
+# 5. 停止：
+#    docker-compose -f docker-compose.fixed.yml down

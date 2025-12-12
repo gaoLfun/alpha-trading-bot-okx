@@ -1,5 +1,5 @@
-# 使用Python 3.11官方镜像作为基础镜像
-FROM hamgua/alpha-trading-bot-okx:base_alpine-v1.5.0
+# 修复依赖问题的Dockerfile
+FROM hamgua/alpha-trading-bot-okx:base_alpine-v1.5.1
 
 # 设置时区
 ENV TZ=Asia/Shanghai
@@ -13,16 +13,26 @@ WORKDIR /app
 # 复制项目文件
 COPY  . .
 
-# 暴露Streamlit端口
-#EXPOSE 8501
+# 验证依赖是否正确安装
+RUN python -c "import dotenv" && echo "✅ python-dotenv 已正确安装" || \
+    (echo "❌ python-dotenv 未安装，正在安装..." && pip install python-dotenv)
 
-# 健康检查简化
-#HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-#    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+RUN python -c "import ccxt" && echo "✅ ccxt 已正确安装" || \
+    (echo "❌ ccxt 未安装，正在安装..." && pip install ccxt)
+
+RUN python -c "import numpy" && echo "✅ numpy 已正确安装" || \
+    (echo "❌ numpy 未安装，正在安装..." && pip install numpy)
+
+# 设置Python路径
+ENV PYTHONPATH=/app
+
+# 健康检查 - 验证程序可以启动
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "from alpha_trading_bot import create_bot; print('✅ 模块导入成功')" || exit 1
 
 # 使用exec形式确保信号传递
 ENTRYPOINT ["python", "-u", "main.py"]
 
 # docker 构建业务镜像命令
-# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:v3.0.8 ./
-# docker push hamgua/alpha-trading-bot-okx:v3.0.8
+# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:v3.0.9 -f Dockerfile ./
+# docker push hamgua/alpha-trading-bot-okx:v3.0.9
