@@ -320,26 +320,26 @@ class TradeExecutor(BaseComponent):
             # 获取止盈止损百分比配置
             take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
 
-            # 计算新的止盈止损价格（基于当前市场价格）
+            # 混合策略：止盈基于当前价格（动态），止损基于持仓均价（固定）
             if current_position.side == TradeSide.LONG:
                 # 多头：止盈在上方，止损在下方
-                new_take_profit = current_price * (1 + take_profit_pct)  # 止盈
-                new_stop_loss = current_price * (1 - stop_loss_pct)    # 止损
+                new_take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
+                new_stop_loss = entry_price * (1 - stop_loss_pct)      # 止损：基于持仓均价（固定）
                 # 加仓时的止盈止损方向
                 tp_side = TradeSide.SELL
                 sl_side = TradeSide.SELL
             else:
                 # 空头：止盈在下方，止损在上方
-                new_take_profit = current_price * (1 - take_profit_pct)  # 止盈
-                new_stop_loss = current_price * (1 + stop_loss_pct)    # 止损
+                new_take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
+                new_stop_loss = entry_price * (1 + stop_loss_pct)      # 止损：基于持仓均价（固定）
                 # 加仓时的止盈止损方向
                 tp_side = TradeSide.BUY
                 sl_side = TradeSide.BUY
 
             logger.info(f"当前持仓: {symbol} {current_position.side.value} {current_position.amount} 张")
-            logger.info(f"基于当前价格 ${current_price:.2f} 设置止盈止损:")
-            logger.info(f"- 止盈: ${new_take_profit:.2f} (+{((new_take_profit - current_price) / current_price * 100):.1f}%)")
-            logger.info(f"- 止损: ${new_stop_loss:.2f} ({((new_stop_loss - current_price) / current_price * 100):.1f}%)")
+            logger.info(f"混合策略设置 - 持仓均价: ${entry_price:.2f}, 当前价格: ${current_price:.2f}")
+            logger.info(f"- 止盈: ${new_take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%)")
+            logger.info(f"- 止损: ${new_stop_loss:.2f} (基于持仓均价 -{stop_loss_pct*100:.0f}%)")
 
             # 获取现有的算法订单
             logger.info(f"获取现有止盈止损订单...")
@@ -417,24 +417,30 @@ class TradeExecutor(BaseComponent):
             # 获取止盈止损百分比配置
             take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
 
-            # 计算止盈止损价格（基于当前市场价格）
+            # 新仓位策略：止盈基于当前价（动态），止损基于入场价（固定）
+            # 记录入场价格作为固定止损基准
+            entry_price = order_result.average_price
+
             if side == TradeSide.BUY:
                 # 多头：止盈在上方，止损在下方
-                take_profit = current_price * (1 + take_profit_pct)  # 止盈
-                stop_loss = current_price * (1 - stop_loss_pct)    # 止损
+                take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
+                stop_loss = entry_price * (1 - stop_loss_pct)      # 止损：基于入场价（固定）
                 # 止盈止损订单方向
                 tp_side = TradeSide.SELL
                 sl_side = TradeSide.SELL
             else:
                 # 空头：止盈在下方，止损在上方
-                take_profit = current_price * (1 - take_profit_pct)  # 止盈
-                stop_loss = current_price * (1 + stop_loss_pct)    # 止损
+                take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
+                stop_loss = entry_price * (1 + stop_loss_pct)      # 止损：基于入场价（固定）
                 # 止盈止损订单方向
                 tp_side = TradeSide.BUY
                 sl_side = TradeSide.BUY
 
             # 实际创建止盈止损订单
             logger.info(f"创建新仓位的止盈止损订单: {symbol}")
+            logger.info(f"混合策略 - 入场价: ${entry_price:.2f}, 当前价: ${current_price:.2f}")
+            logger.info(f"- 止盈: ${take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%)")
+            logger.info(f"- 止损: ${stop_loss:.2f} (基于入场价 -{stop_loss_pct*100:.0f}%)")
 
             # 创建止盈订单
             tp_result = await self.order_manager.create_take_profit_order(
