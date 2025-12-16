@@ -46,11 +46,11 @@ class PositionManager(BaseComponent):
             # 从交易所获取仓位信息
             logger.info(f"开始更新仓位信息: {symbol}")
             positions = await exchange_client.fetch_positions(symbol)
-            logger.info(f"获取到的仓位数据: {positions}")
 
             if positions and len(positions) > 0:
                 pos_data = positions[0]  # 取第一个仓位
-                logger.info(f"找到仓位数据: {pos_data}")
+                # 简化日志 - 只显示关键信息
+                logger.info(f"检测到仓位: {symbol} {pos_data['side']} {pos_data['contracts']} 张, 均价: ${pos_data['entryPrice']:.2f}, 浮盈: ${pos_data['unrealizedPnl']:.4f} ({pos_data['percentage']:.2f}%)")
 
                 position = PositionInfo(
                     symbol=symbol,

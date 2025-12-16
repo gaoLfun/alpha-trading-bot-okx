@@ -350,15 +350,30 @@ class TradingBot(BaseComponent):
                 trades = risk_assessment.get('trades', [])
                 if trades:
                     self.enhanced_logger.logger.info(f"💰 准备执行 {len(trades)} 笔交易")
-                    for trade in trades:
+                    for i, trade in enumerate(trades, 1):
                         action = trade.get('side', 'unknown')
                         price = trade.get('price', 0)
                         size = trade.get('amount', 0)
                         reason = trade.get('reason', '')
                         confidence = trade.get('confidence', 0)
 
+                        # 计算止盈止损价格（基于6%止盈，2%止损）
+                        tp_price = None
+                        sl_price = None
+                        if price > 0:
+                            if action.upper() == 'BUY':
+                                tp_price = price * 1.06  # 6% 止盈
+                                sl_price = price * 0.98  # 2% 止损
+                            elif action.upper() == 'SELL':
+                                tp_price = price * 0.94  # 6% 止盈
+                                sl_price = price * 1.02  # 2% 止损
+
+                        # 显示交易编号（多笔交易时）
+                        if len(trades) > 1:
+                            self.enhanced_logger.logger.info(f"📊 交易 {i}/{len(trades)}:")
+
                         self.enhanced_logger.info_trading_decision(
-                            action, price, size, reason, confidence
+                            action, price, size, reason, confidence, tp_price, sl_price
                         )
 
                     # 逐笔执行交易

@@ -142,15 +142,23 @@ class OrderManager(BaseComponent):
         try:
             logger.info(f"创建止损订单: {symbol} {side.value} {amount} @ {stop_price}")
 
+            # 使用转换函数获取正确的instId
+            inst_id = self._convert_symbol_to_inst_id(symbol)
+            logger.info(f"创建算法订单 - symbol: {symbol}, instId: {inst_id}")
+
             # 构建算法订单参数
             params = {
-                'reduceOnly': reduce_only,
+                'instId': inst_id,
                 'triggerPx': str(stop_price),  # 触发价格
                 'orderPx': '-1',  # -1 表示市价执行
                 'triggerPxType': 'last',  # 基于最新价格触发
                 'tdMode': 'cross',  # 全仓模式
                 'ordType': 'trigger'  # 触发订单类型
             }
+
+            # OKX的算法订单不支持reduceOnly参数，只有在平仓时才需要设置
+            if reduce_only:
+                logger.info("注意：OKX算法订单不支持reduceOnly参数，将创建普通触发订单")
 
             if client_order_id:
                 params['clientOrderId'] = client_order_id
@@ -167,15 +175,15 @@ class OrderManager(BaseComponent):
 
             order_result = OrderResult(
                 success=True,
-                order_id=order['id'],
+                order_id=order.get('id', ''),
                 client_order_id=order.get('clientOrderId'),
-                symbol=order['symbol'],
+                symbol=order.get('symbol', symbol),
                 side=side,
-                amount=order['amount'],
-                price=float(order.get('price', 0)),
-                filled_amount=float(order.get('filled', 0)),
-                average_price=float(order.get('average', 0)),
-                status=OrderStatus(order['status'])
+                amount=order.get('amount', amount),
+                price=float(order.get('price', 0) or 0),
+                filled_amount=float(order.get('filled', 0) or 0),
+                average_price=float(order.get('average', 0) or 0),
+                status=OrderStatus.OPEN  # 算法订单默认是OPEN状态
             )
 
             # 添加到活动订单列表
@@ -198,15 +206,23 @@ class OrderManager(BaseComponent):
         try:
             logger.info(f"创建止盈订单: {symbol} {side.value} {amount} @ {take_profit_price}")
 
+            # 使用转换函数获取正确的instId
+            inst_id = self._convert_symbol_to_inst_id(symbol)
+            logger.info(f"创建算法订单 - symbol: {symbol}, instId: {inst_id}")
+
             # 构建算法订单参数
             params = {
-                'reduceOnly': reduce_only,
+                'instId': inst_id,
                 'triggerPx': str(take_profit_price),  # 触发价格
                 'orderPx': '-1',  # -1 表示市价执行
                 'triggerPxType': 'last',  # 基于最新价格触发
                 'tdMode': 'cross',  # 全仓模式
                 'ordType': 'trigger'  # 触发订单类型
             }
+
+            # OKX的算法订单不支持reduceOnly参数
+            if reduce_only:
+                logger.info("注意：OKX算法订单不支持reduceOnly参数，将创建普通触发订单")
 
             if client_order_id:
                 params['clientOrderId'] = client_order_id
@@ -223,15 +239,15 @@ class OrderManager(BaseComponent):
 
             order_result = OrderResult(
                 success=True,
-                order_id=order['id'],
+                order_id=order.get('id', ''),
                 client_order_id=order.get('clientOrderId'),
-                symbol=order['symbol'],
+                symbol=order.get('symbol', symbol),
                 side=side,
-                amount=order['amount'],
-                price=float(order.get('price', 0)),
-                filled_amount=float(order.get('filled', 0)),
-                average_price=float(order.get('average', 0)),
-                status=OrderStatus(order['status'])
+                amount=order.get('amount', amount),
+                price=float(order.get('price', 0) or 0),
+                filled_amount=float(order.get('filled', 0) or 0),
+                average_price=float(order.get('average', 0) or 0),
+                status=OrderStatus.OPEN  # 算法订单默认是OPEN状态
             )
 
             # 添加到活动订单列表
@@ -262,6 +278,11 @@ class OrderManager(BaseComponent):
             return [order for order in self.active_orders.values() if order.symbol == symbol]
         return list(self.active_orders.values())
 
+    def _convert_symbol_to_inst_id(self, symbol: str) -> str:
+        """转换交易对格式（BTC/USDT:USDT -> BTC-USDT-SWAP）"""
+        # BTC/USDT:USDT -> BTC-USDT-SWAP
+        return symbol.replace('/USDT:USDT', '-USDT-SWAP').replace('/', '-')
+
     def get_order_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[OrderResult]:
         """获取订单历史"""
         orders = self.order_history
@@ -272,42 +293,63 @@ class OrderManager(BaseComponent):
     async def fetch_algo_orders(self, symbol: str) -> List[OrderResult]:
         """获取算法订单（止盈止损订单）"""
         try:
+            # 使用转换函数获取正确的instId
+            inst_id = self._convert_symbol_to_inst_id(symbol)
+            logger.info(f"获取算法订单 - symbol: {symbol}, instId: {inst_id}")
+
             # 使用CCXT获取未触发的算法订单
             algo_orders = await self.exchange_client.exchange.private_get_trade_orders_algo_pending({
-                'instId': symbol,
+                'instId': inst_id,
                 'ordType': 'trigger'
             })
 
-            # 转换格式
+            # 转换格式 - 减少日志冗余，只记录关键信息
             orders = []
-            for order in algo_orders.get('data', []):
-                orders.append(OrderResult(
-                    success=True,
-                    order_id=order['algoId'],
-                    symbol=order['instId'],
-                    side=TradeSide(order['side'].lower()),
-                    amount=float(order['sz']),
-                    price=float(order.get('triggerPx', 0)),
-                    filled_amount=0,
-                    average_price=0,
-                    status=OrderStatus.OPEN
-                ))
+            data = algo_orders.get('data', [])
+            logger.info(f"找到 {len(data)} 个算法订单")
+
+            for order in data:
+                try:
+                    orders.append(OrderResult(
+                        success=True,
+                        order_id=order.get('algoId', ''),
+                        symbol=order.get('instId', symbol),
+                        side=TradeSide(order.get('side', 'buy').lower()),
+                        amount=float(order.get('sz', 0)),
+                        price=float(order.get('triggerPx', 0)),
+                        filled_amount=0,
+                        average_price=0,
+                        status=OrderStatus.OPEN
+                    ))
+                except Exception as order_error:
+                    logger.error(f"转换单个订单失败: {order_error}, 订单数据: {order}")
+                    continue
+
             return orders
         except Exception as e:
             logger.error(f"获取算法订单失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             return []
 
     async def cancel_algo_order(self, algo_order_id: str, symbol: str) -> bool:
         """取消算法订单"""
         try:
-            await self.exchange_client.exchange.private_post_trade_cancel_algo_order({
+            # 使用转换函数获取正确的instId
+            inst_id = self._convert_symbol_to_inst_id(symbol)
+            logger.info(f"取消算法订单 - algoId: {algo_order_id}, instId: {inst_id}")
+
+            # 使用正确的CCXT方法取消算法订单
+            await self.exchange_client.exchange.private_post_trade_cancel_algos([{
                 'algoId': algo_order_id,
-                'instId': symbol
-            })
+                'instId': inst_id
+            }])
             logger.info(f"算法订单取消成功: {algo_order_id}")
             return True
         except Exception as e:
             logger.error(f"取消算法订单失败 {algo_order_id}: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             return False
 
     def get_status(self) -> Dict[str, Any]:

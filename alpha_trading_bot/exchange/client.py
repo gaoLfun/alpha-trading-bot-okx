@@ -137,12 +137,19 @@ class ExchangeClient:
             # 设置杠杆（如果是合约交易）
             if hasattr(self.exchange, 'set_leverage'):
                 try:
-                    await self.exchange.set_leverage(
-                        self.config.leverage,
-                        self.config.symbol
-                    )
+                    logger.info(f"准备设置杠杆: {self.config.leverage}x for {self.config.symbol}")
+                    logger.info(f"当前配置: exchange={self.config.exchange}, symbol={self.config.symbol}, leverage={self.config.leverage}")
+                    success = await self.set_leverage(self.config.leverage, self.config.symbol)
+                    if success:
+                        logger.info(f"杠杆设置成功: {self.config.leverage}x")
+                    else:
+                        logger.warning(f"杠杆设置可能未成功，但系统将继续运行")
                 except Exception as e:
-                    logger.warning(f"设置杠杆失败: {e}")
+                    logger.error(f"设置杠杆异常: {e}")
+                    import traceback
+                    logger.error(f"详细错误: {traceback.format_exc()}")
+                    # 即使杠杆设置失败，系统仍继续运行
+                    logger.warning("杠杆设置失败，但系统将继续初始化...")
 
             self._initialized = True
             logger.info(f"交易所客户端初始化成功: {self.config.exchange}")
@@ -365,9 +372,16 @@ class ExchangeClient:
     async def fetch_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         """获取仓位信息"""
         try:
-            logger.info(f"正在获取仓位信息，符号: {symbol}")
+            # 简化日志 - 只在有仓位时显示关键信息
             positions = await self.exchange.fetch_positions([symbol] if symbol else None)
-            logger.info(f"获取到的原始仓位数据: {positions}")
+
+            if positions and len(positions) > 0:
+                # 只记录简要信息
+                for pos in positions:
+                    if pos.get('contracts', 0) != 0:  # 有实际仓位
+                        logger.info(f"获取仓位: {pos.get('symbol', 'unknown')} {pos.get('side', 'unknown')} {pos.get('contracts', 0)} 张")
+            else:
+                logger.debug(f"未获取到仓位信息: {symbol}")
 
             # 如果没有指定符号，返回所有仓位
             if not symbol:
@@ -375,26 +389,120 @@ class ExchangeClient:
 
             # 如果指定了符号，过滤出指定符号的仓位
             filtered_positions = [pos for pos in positions if pos.get('symbol') == symbol]
-            logger.info(f"过滤后的仓位数据: {filtered_positions}")
             return filtered_positions
         except Exception as e:
             logger.error(f"获取仓位信息失败: {e}")
             raise ExchangeError(f"获取仓位信息失败: {e}")
 
     async def set_leverage(self, leverage: int, symbol: str) -> bool:
-        """设置杠杆"""
+        """设置杠杆 - 增强版本，处理算法订单冲突"""
+        logger.info(f"[Enhanced set_leverage] 开始设置杠杆: {leverage}x for {symbol}")
         try:
+            # 首先尝试直接设置杠杆
             await self.exchange.set_leverage(leverage, symbol)
+            logger.info(f"[Enhanced set_leverage] 杠杆设置成功: {leverage}x")
             return True
         except Exception as e:
-            error_msg = str(e).lower()
+            error_msg = str(e)
+            error_lower = error_msg.lower()
+
+            # 添加详细日志用于调试
+            logger.info(f"杠杆设置失败详情: {error_msg}")
+            logger.info(f"错误码分析: code=59669 在错误中: {'59669' in error_msg}")
+            logger.info(f"算法订单关键词检测: {'cancel cross-margin tp/sl' in error_lower}")
+
+            # 检查是否是因为存在算法订单导致的错误
+            # OKX错误码59669表示存在活跃的算法订单
+            if '59669' in error_msg or any(keyword in error_lower for keyword in [
+                'cancel cross-margin tp/sl',
+                'trailing, trigger, and chase orders',
+                'stop bots before adjusting your leverage',
+                'cancel.*orders.*before.*adjusting.*leverage'
+            ]):
+                logger.warning(f"设置杠杆失败，存在活跃算法订单: {e}")
+                logger.info("尝试取消算法订单后重新设置杠杆...")
+
+                # 保存现有算法订单
+                saved_orders = await self._save_and_cancel_algo_orders(symbol)
+
+                try:
+                    # 再次尝试设置杠杆
+                    await self.exchange.set_leverage(leverage, symbol)
+                    logger.info(f"杠杆设置成功: {leverage}x")
+
+                    # 恢复算法订单
+                    if saved_orders:
+                        logger.info(f"正在恢复 {len(saved_orders)} 个算法订单...")
+                        await self._restore_algo_orders(symbol, saved_orders)
+
+                    return True
+                except Exception as retry_error:
+                    logger.error(f"重试设置杠杆失败: {retry_error}")
+                    return False
+
             # 检查是否是已存在订单或设置的错误
-            if any(keyword in error_msg for keyword in ['already exist', '已存在', 'duplicate', '重复']):
+            elif any(keyword in error_lower for keyword in ['already exist', '已存在', 'duplicate', '重复']):
                 logger.info(f"杠杆设置已存在，无需重复设置: {e}")
                 return True  # 视为成功，因为杠杆已经设置
             else:
                 logger.error(f"设置杠杆失败: {e}")
                 return False
+
+    async def _save_and_cancel_algo_orders(self, symbol: str) -> List[Dict[str, Any]]:
+        """保存并取消算法订单"""
+        try:
+            # 转换符号格式
+            inst_id = symbol.replace('/USDT:USDT', '-USDT-SWAP').replace('/', '-')
+            logger.info(f"[_save_and_cancel_algo_orders] 转换符号: {symbol} -> {inst_id}")
+
+            # 获取当前算法订单
+            algo_orders = await self.exchange.private_get_trade_orders_algo_pending({
+                'instId': inst_id,
+                'ordType': 'trigger'
+            })
+
+            orders_data = algo_orders.get('data', [])
+            if not orders_data:
+                return []
+
+            logger.info(f"发现 {len(orders_data)} 个活跃算法订单，正在取消...")
+
+            # 取消所有算法订单
+            cancel_params = [{'algoId': order['algoId'], 'instId': order['instId']} for order in orders_data]
+            await self.exchange.private_post_trade_cancel_algos(cancel_params)
+
+            logger.info(f"已取消 {len(orders_data)} 个算法订单")
+            return orders_data
+
+        except Exception as e:
+            logger.error(f"保存并取消算法订单失败: {e}")
+            return []
+
+    async def _restore_algo_orders(self, symbol: str, orders: List[Dict[str, Any]]) -> None:
+        """恢复算法订单"""
+        try:
+            for order in orders:
+                try:
+                    # 重新创建算法订单
+                    params = {
+                        'instId': order['instId'],
+                        'triggerPx': order['triggerPx'],
+                        'orderPx': order['ordPx'],
+                        'triggerPxType': order.get('triggerPxType', 'last'),
+                        'tdMode': order['tdMode'],
+                        'ordType': order['ordType'],
+                        'side': order['side'],
+                        'sz': order['sz']
+                    }
+
+                    await self.exchange.private_post_trade_order_algo(params)
+                    logger.info(f"恢复算法订单成功: {order['algoId']}")
+
+                except Exception as restore_error:
+                    logger.error(f"恢复单个算法订单失败 {order['algoId']}: {restore_error}")
+
+        except Exception as e:
+            logger.error(f"恢复算法订单过程失败: {e}")
 
     async def fetch_ohlcv(self, symbol: str, timeframe: str = '5m', limit: int = 100) -> List[List[float]]:
         """获取K线数据"""

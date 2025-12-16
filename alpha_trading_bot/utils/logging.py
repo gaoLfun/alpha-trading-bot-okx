@@ -212,10 +212,16 @@ class EnhancedLogger:
                         f"标准差={std_rate:.2f}, 最终得分={final_score:.2f}")
 
     def info_trading_decision(self, action: str, price: float, size: float,
-                            reason: str, confidence: float):
+                            reason: str, confidence: float, tp_price: Optional[float] = None,
+                            sl_price: Optional[float] = None):
         """记录交易决策"""
         self.logger.info(f"💰 交易决策: {action} @ ${price:,.2f}")
         self.logger.info(f"   数量: {size} BTC, 信心: {confidence:.2f}")
+        # 显示止盈止损价格（如果有）
+        if tp_price is not None:
+            self.logger.info(f"   止盈: ${tp_price:,.2f} (+{((tp_price - price) / price * 100):.1f}%)")
+        if sl_price is not None:
+            self.logger.info(f"   止损: ${sl_price:,.2f} ({((sl_price - price) / price * 100):.1f}%)")
         self.logger.info(f"   原因: {reason}")
 
     def info_position_update(self, position_type: str, size: float, avg_price: float,
