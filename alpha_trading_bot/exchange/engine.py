@@ -167,12 +167,16 @@ class TradingEngine(BaseComponent):
                     closes.append(close_price)
                     volumes.append(volume)
 
+                # 计算24小时平均成交量
+                avg_volume_24h = sum(volumes) / len(volumes) if volumes else random.uniform(500, 2000)
+
                 market_data = {
                     'symbol': symbol,
                     'price': current_price,
                     'bid': current_price - 10,
                     'ask': current_price + 10,
                     'volume': random.uniform(100, 1000),
+                    'avg_volume_24h': avg_volume_24h,  # 添加24小时平均成交量
                     'high': current_price * 1.02,
                     'low': current_price * 0.98,
                     'timestamp': datetime.now(),

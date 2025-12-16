@@ -116,7 +116,12 @@ class StrategyManager(BaseComponent):
 
                 # 保存AI信号到数据管理器
                 try:
-                    from ..data import get_data_manager
+                    # 尝试从数据模块导入，如果不成功则使用相对导入
+                    try:
+                        from alpha_trading_bot.data import get_data_manager
+                    except ImportError:
+                        from ..data import get_data_manager
+
                     data_manager = await get_data_manager()
 
                     # 清理market_data中的datetime对象，避免JSON序列化错误
