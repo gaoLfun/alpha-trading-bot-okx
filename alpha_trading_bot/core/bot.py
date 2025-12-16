@@ -316,7 +316,9 @@ class TradingBot(BaseComponent):
 
             # 3. 风险评估
             self.enhanced_logger.logger.info("⚠️ 进行风险评估...")
-            risk_assessment = await self.risk_manager.assess_risk(signals)
+            # 获取当前价格用于风险评估
+            current_price = market_data.get('price', 0)
+            risk_assessment = await self.risk_manager.assess_risk(signals, current_price)
             risk_level = risk_assessment.get('risk_level', 'unknown')
             risk_score = risk_assessment.get('risk_score', 0)
             trades = risk_assessment.get('trades', [])  # 确保trades变量被定义
@@ -335,9 +337,9 @@ class TradingBot(BaseComponent):
                 self.enhanced_logger.logger.info(f"✅ 通过风险评估的交易 ({len(trades)} 个):")
                 for i, trade in enumerate(trades, 1):
                     self.enhanced_logger.logger.info(f"  交易 {i}:")
-                    self.enhanced_logger.logger.info(f"    操作: {trade.get('action', 'unknown').upper()}")
-                    self.enhanced_logger.logger.info(f"    价格: ${trade.get('price', 0):,.2f}")
-                    self.enhanced_logger.logger.info(f"    数量: {trade.get('size', 0)}")
+                    self.enhanced_logger.logger.info(f"    操作: {trade.get('side', 'unknown').upper()}")
+                    self.enhanced_logger.logger.info(f"    价格: ${trade.get('price', 0) or 0:,.2f}")
+                    self.enhanced_logger.logger.info(f"    数量: {trade.get('amount', 0)}")
                     self.enhanced_logger.logger.info(f"    原因: {trade.get('reason', '无')}")
                     self.enhanced_logger.logger.info(f"    信心度: {trade.get('confidence', 0):.2f}")
                     self.enhanced_logger.logger.info("    " + "-" * 30)
@@ -349,9 +351,9 @@ class TradingBot(BaseComponent):
                 if trades:
                     self.enhanced_logger.logger.info(f"💰 准备执行 {len(trades)} 笔交易")
                     for trade in trades:
-                        action = trade.get('action', 'unknown')
+                        action = trade.get('side', 'unknown')
                         price = trade.get('price', 0)
-                        size = trade.get('size', 0)
+                        size = trade.get('amount', 0)
                         reason = trade.get('reason', '')
                         confidence = trade.get('confidence', 0)
 
@@ -359,9 +361,12 @@ class TradingBot(BaseComponent):
                             action, price, size, reason, confidence
                         )
 
-                    await self.trading_engine.execute_trades(trades)
-                    self.enhanced_logger.logger.info("✅ 交易执行完成")
-                    executed_trades = len(trades)  # 更新执行交易数量
+                    # 逐笔执行交易
+                    for trade in trades:
+                        result = await self.trading_engine.execute_trade(trade)
+                        if result.success:
+                            executed_trades += 1
+                    self.enhanced_logger.logger.info(f"✅ 交易执行完成，成功执行 {executed_trades}/{len(trades)} 笔交易")
                 else:
                     self.enhanced_logger.logger.info("ℹ️ 无交易信号通过风险评估")
             else:

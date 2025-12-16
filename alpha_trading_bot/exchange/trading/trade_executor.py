@@ -63,11 +63,23 @@ class TradeExecutor(BaseComponent):
             logger.info(f"执行交易: {symbol} {side.value} {amount} @ {price or 'market'} - {reason}")
 
             # 1. 检查是否有足够的余额
-            balance = await self.exchange_client.fetch_balance()
-            if balance.free < amount * (price or await self._get_current_price(symbol)):
+            try:
+                balance = await self.exchange_client.fetch_balance()
+                current_price = price or await self._get_current_price(symbol)
+                required_amount = amount * current_price
+
+                logger.info(f"余额检查 - 可用: {balance.free}, 需要: {required_amount}, 价格: {current_price}")
+
+                if balance.free < required_amount:
+                    return TradeResult(
+                        success=False,
+                        error_message=f"余额不足 - 可用: {balance.free:.4f}, 需要: {required_amount:.4f}"
+                    )
+            except Exception as e:
+                logger.error(f"余额检查失败: {e}")
                 return TradeResult(
                     success=False,
-                    error_message="余额不足"
+                    error_message=f"余额检查异常: {str(e)}"
                 )
 
             # 2. 创建主订单
@@ -121,9 +133,11 @@ class TradeExecutor(BaseComponent):
 
         except Exception as e:
             logger.error(f"交易执行失败: {e}")
+            import traceback
+            logger.error(f"详细错误堆栈: {traceback.format_exc()}")
             return TradeResult(
                 success=False,
-                error_message=str(e)
+                error_message=f"交易执行异常: {str(e)}"
             )
 
     async def _wait_for_order_fill(self, order_result: OrderResult, timeout: int = 30) -> Optional[OrderResult]:

@@ -116,45 +116,48 @@ class StrategyManager(BaseComponent):
 
                 # 保存AI信号到数据管理器
                 try:
-                    # 尝试从数据模块导入，如果不成功则使用相对导入
+                    # 使用相对导入从数据模块获取管理器
+                    from ..data import get_data_manager
+
                     try:
-                        from alpha_trading_bot.data import get_data_manager
-                    except ImportError:
-                        from ..data import get_data_manager
+                        data_manager = await get_data_manager()
+                    except RuntimeError as e:
+                        # 如果数据管理器未初始化，记录警告但不影响主流程
+                        logger.warning(f"数据管理器未初始化，跳过AI信号保存: {e}")
+                    else:
+                        # 清理market_data中的datetime对象，避免JSON序列化错误
+                        clean_market_data = {}
+                        for key, value in market_data.items():
+                            if key == 'timestamp' and isinstance(value, datetime):
+                                # 将datetime转换为ISO格式字符串
+                                clean_market_data[key] = value.isoformat()
+                            elif key == 'orderbook' and isinstance(value, dict):
+                                # 清理orderbook中的datetime对象
+                                clean_orderbook = {}
+                                for ob_key, ob_value in value.items():
+                                    if isinstance(ob_value, list):
+                                        clean_orderbook[ob_key] = [
+                                            {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in item.items()}
+                                            if isinstance(item, dict) else item
+                                            for item in ob_value
+                                        ]
+                                    else:
+                                        clean_orderbook[ob_key] = ob_value
+                                clean_market_data[key] = clean_orderbook
+                            else:
+                                clean_market_data[key] = value
 
-                    data_manager = await get_data_manager()
-
-                    # 清理market_data中的datetime对象，避免JSON序列化错误
-                    clean_market_data = {}
-                    for key, value in market_data.items():
-                        if key == 'timestamp' and isinstance(value, datetime):
-                            # 将datetime转换为ISO格式字符串
-                            clean_market_data[key] = value.isoformat()
-                        elif key == 'orderbook' and isinstance(value, dict):
-                            # 清理orderbook中的datetime对象
-                            clean_orderbook = {}
-                            for ob_key, ob_value in value.items():
-                                if isinstance(ob_value, list):
-                                    clean_orderbook[ob_key] = [
-                                        {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in item.items()}
-                                        if isinstance(item, dict) else item
-                                        for item in ob_value
-                                    ]
-                                else:
-                                    clean_orderbook[ob_key] = ob_value
-                            clean_market_data[key] = clean_orderbook
-                        else:
-                            clean_market_data[key] = value
-
-                    ai_signal_data = {
-                        'provider': ai_signal.get('provider', 'unknown'),
-                        'signal': ai_signal.get('signal', 'HOLD'),
-                        'confidence': ai_signal.get('confidence', 0.5),
-                        'reason': ai_signal.get('reason', 'AI分析'),
-                        'market_price': market_data.get('price', 0),
-                        'market_data': clean_market_data
-                    }
-                    await data_manager.save_ai_signal(ai_signal_data)
+                        ai_signal_data = {
+                            'provider': ai_signal.get('provider', 'unknown'),
+                            'signal': ai_signal.get('signal', 'HOLD'),
+                            'confidence': ai_signal.get('confidence', 0.5),
+                            'reason': ai_signal.get('reason', 'AI分析'),
+                            'market_price': market_data.get('price', 0),
+                            'market_data': clean_market_data
+                        }
+                        await data_manager.save_ai_signal(ai_signal_data)
+                except ImportError as e:
+                    logger.warning(f"数据模块导入失败，跳过AI信号保存: {e}")
                 except Exception as e:
                     logger.warning(f"保存AI信号失败: {e}")
 

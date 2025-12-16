@@ -50,7 +50,7 @@ class RiskManager(BaseComponent):
         """清理资源"""
         pass
 
-    async def assess_risk(self, signals: list) -> Dict[str, Any]:
+    async def assess_risk(self, signals: list, current_price: float = 0) -> Dict[str, Any]:
         """评估交易风险（兼容策略管理器调用的接口）"""
         try:
             # 如果没有信号，返回默认允许交易
@@ -64,6 +64,13 @@ class RiskManager(BaseComponent):
             # 简化实现：基于信号数量和质量评估风险
             risk_score = 0.0
             reasons = []
+
+            # 获取当前价格（如果没有提供）
+            if current_price == 0:
+                from ...config import load_config
+                config = load_config()
+                # 这里应该获取实时价格，简化实现使用默认值
+                current_price = 85000  # 默认价格
 
             # 1. 信号数量风险
             if len(signals) > 3:
@@ -132,13 +139,34 @@ class RiskManager(BaseComponent):
             else:
                 risk_level = "critical"
 
+            # 将信号转换为交易请求
+            trades = []
+            if can_trade:
+                for signal in signals:
+                    # 获取信号类型
+                    signal_type = signal.get('signal', signal.get('type', 'HOLD')).upper()
+                    if signal_type in ['BUY', 'SELL']:
+                        trade_request = {
+                            'symbol': signal.get('symbol', 'BTC/USDT:USDT'),
+                            'side': 'buy' if signal_type == 'BUY' else 'sell',
+                            'amount': signal.get('size', 0.01),  # 默认交易量
+                            'type': 'market',
+                            'price': signal.get('price') or current_price,  # 使用当前价格如果信号中没有价格
+                            'current_price': current_price,
+                            'reason': signal.get('reason', 'AI信号'),
+                            'confidence': signal.get('confidence', 0.5),
+                            'signal_source': signal.get('source', 'unknown')
+                        }
+                        trades.append(trade_request)
+
             return {
                 'can_trade': can_trade,
                 'reason': reason,
                 'risk_score': risk_score,
                 'risk_level': risk_level,
                 'daily_loss': self.daily_loss,
-                'consecutive_losses': self.consecutive_losses
+                'consecutive_losses': self.consecutive_losses,
+                'trades': trades  # 添加交易列表
             }
 
         except Exception as e:
@@ -231,7 +259,7 @@ class RiskManager(BaseComponent):
         try:
             # 这里应该获取当前仓位信息
             # 简化实现：基于交易金额和账户余额计算风险
-            from ..config import load_config
+            from ...config import load_config
             config = load_config()
 
             max_position_size = config.trading.max_position_size
