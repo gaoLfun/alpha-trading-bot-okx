@@ -377,8 +377,14 @@ class ExchangeClient:
             await self.exchange.set_leverage(leverage, symbol)
             return True
         except Exception as e:
-            logger.error(f"设置杠杆失败: {e}")
-            return False
+            error_msg = str(e).lower()
+            # 检查是否是已存在订单或设置的错误
+            if any(keyword in error_msg for keyword in ['already exist', '已存在', 'duplicate', '重复']):
+                logger.info(f"杠杆设置已存在，无需重复设置: {e}")
+                return True  # 视为成功，因为杠杆已经设置
+            else:
+                logger.error(f"设置杠杆失败: {e}")
+                return False
 
     async def fetch_ohlcv(self, symbol: str, timeframe: str = '5m', limit: int = 100) -> List[List[float]]:
         """获取K线数据"""

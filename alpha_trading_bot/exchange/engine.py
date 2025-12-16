@@ -268,12 +268,16 @@ class TradingEngine(BaseComponent):
             except Exception as e:
                 logger.warning(f"获取OHLCV数据失败: {e}，将使用基础数据")
 
+            # 计算24小时平均成交量
+            avg_volume_24h = sum(volumes) / len(volumes) if volumes else ticker.volume
+
             return {
                 'symbol': symbol,
                 'price': ticker.last,
                 'bid': ticker.bid,
                 'ask': ticker.ask,
                 'volume': ticker.volume,
+                'avg_volume_24h': avg_volume_24h,  # 添加24小时平均成交量
                 'high': ticker.high,
                 'low': ticker.low,
                 'timestamp': datetime.now(),
