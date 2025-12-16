@@ -182,7 +182,13 @@ class AIManager(BaseComponent):
                 # AI提供商使用 'signal' 字段，不是 'action'
                 action = signal.get('signal', signal.get('action', 'UNKNOWN'))
                 confidence = signal.get('confidence', 0)
-                logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f})")
+                reason = signal.get('reason', '')
+
+                # 添加信号理由到日志
+                if reason:
+                    logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f}) - {reason}")
+                else:
+                    logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f})")
             else:
                 logger.error(f"❌ {provider.upper()} 返回空信号")
 
@@ -226,7 +232,11 @@ class AIManager(BaseComponent):
 
                             # 记录详细的信号信息
                             action = signal.get('signal', signal.get('action', 'UNKNOWN'))
-                            logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f})")
+                            reason = signal.get('reason', '')
+                            if reason:
+                                logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f}) - {reason}")
+                            else:
+                                logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f})")
                         else:
                             logger.warning(f"⚠️  {provider.upper()} 置信度不足: {confidence:.2f} < {self.config.min_confidence}")
                             fail_count += 1

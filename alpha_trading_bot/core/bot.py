@@ -133,8 +133,29 @@ class TradingBot(BaseComponent):
                 # 执行一次交易循环
                 await self._trading_cycle(cycle_count)
 
-                # 等待下一个周期
-                await asyncio.sleep(self.config.cycle_interval * 60)
+                # 计算等待到下一个15分钟整点的时间
+                now = datetime.now()
+                next_minute = ((now.minute // 15) + 1) * 15
+                if next_minute >= 60:
+                    next_minute = 0
+                    next_hour = now.hour + 1
+                    if next_hour >= 24:
+                        next_hour = 0
+                else:
+                    next_hour = now.hour
+
+                next_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
+
+                # 计算等待时间
+                wait_seconds = (next_execution_time - now).total_seconds()
+                if wait_seconds < 0:
+                    wait_seconds += 86400
+
+                # 记录等待信息
+                self.enhanced_logger.logger.info(f"⏰ 等待 {wait_seconds:.0f} 秒到下一个15分钟整点执行...")
+
+                # 等待到下一个整点
+                await asyncio.sleep(wait_seconds)
 
         except Exception as e:
             self.enhanced_logger.logger.error(f"交易循环异常: {e}")
