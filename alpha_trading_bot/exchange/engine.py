@@ -229,16 +229,38 @@ class TradingEngine(BaseComponent):
             volumes = []
 
             try:
-                # 获取最近100根15分钟K线
-                ohlcv = await self.exchange_client.fetch_ohlcv(symbol, timeframe='15m', limit=100)
-                if ohlcv and len(ohlcv) >= 50:
-                    ohlcv_data = ohlcv
-                    timestamps = [candle[0] for candle in ohlcv]
-                    opens = [candle[1] for candle in ohlcv]
-                    highs = [candle[2] for candle in ohlcv]
-                    lows = [candle[3] for candle in ohlcv]
-                    closes = [candle[4] for candle in ohlcv]
-                    volumes = [candle[5] for candle in ohlcv]
+                # 获取多时间框架数据
+                multi_timeframe_data = {}
+
+                # 获取15分钟K线（主时间框架）
+                ohlcv_15m = await self.exchange_client.fetch_ohlcv(symbol, timeframe='15m', limit=100)
+                if ohlcv_15m and len(ohlcv_15m) >= 50:
+                    ohlcv_data = ohlcv_15m
+                    timestamps = [candle[0] for candle in ohlcv_15m]
+                    opens = [candle[1] for candle in ohlcv_15m]
+                    highs = [candle[2] for candle in ohlcv_15m]
+                    lows = [candle[3] for candle in ohlcv_15m]
+                    closes = [candle[4] for candle in ohlcv_15m]
+                    volumes = [candle[5] for candle in ohlcv_15m]
+
+                    multi_timeframe_data['15m'] = ohlcv_15m
+
+                # 获取1小时K线（次要时间框架）
+                try:
+                    ohlcv_1h = await self.exchange_client.fetch_ohlcv(symbol, timeframe='1h', limit=50)
+                    if ohlcv_1h and len(ohlcv_1h) >= 20:
+                        multi_timeframe_data['1h'] = ohlcv_1h
+                except Exception as e:
+                    logger.debug(f"获取1小时K线数据失败: {e}")
+
+                # 获取4小时K线（长期时间框架）
+                try:
+                    ohlcv_4h = await self.exchange_client.fetch_ohlcv(symbol, timeframe='4h', limit=30)
+                    if ohlcv_4h and len(ohlcv_4h) >= 15:
+                        multi_timeframe_data['4h'] = ohlcv_4h
+                except Exception as e:
+                    logger.debug(f"获取4小时K线数据失败: {e}")
+
             except Exception as e:
                 logger.warning(f"获取OHLCV数据失败: {e}，将使用基础数据")
 
@@ -265,7 +287,9 @@ class TradingEngine(BaseComponent):
                 'volumes': volumes,
                 'period': '15m',
                 'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
-                'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else ''
+                'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else '',
+                # 多时间框架数据
+                'multi_timeframe': multi_timeframe_data
             }
         except Exception as e:
             logger.error(f"获取市场数据失败: {e}")

@@ -75,12 +75,22 @@ class RiskManager(BaseComponent):
             sell_signals = sum(1 for s in signals if s.get('signal') == 'SELL')
             hold_signals = sum(1 for s in signals if s.get('signal') == 'HOLD')
 
+            # 也检查'type'字段，因为信号可能使用'type'而不是'signal'
+            if buy_signals == 0 and sell_signals == 0 and hold_signals == 0:
+                buy_signals = sum(1 for s in signals if s.get('type') == 'BUY')
+                sell_signals = sum(1 for s in signals if s.get('type') == 'SELL')
+                hold_signals = sum(1 for s in signals if s.get('type') == 'HOLD')
+
             total_signals = len(signals)
             if total_signals > 0:
                 max_consensus = max(buy_signals, sell_signals, hold_signals) / total_signals
+                # 调整阈值：对于100%一致的信号，不应视为"一致性不足"
                 if max_consensus < 0.6:
                     risk_score += 0.2
                     reasons.append("信号一致性不足")
+                elif max_consensus == 1.0 and hold_signals == total_signals:
+                    # 全HOLD信号是正常的市场观望状态，不应惩罚
+                    risk_score += 0.0  # 不增加风险分数
 
             # 3. 当日亏损检查
             if self.daily_loss >= self.config.max_daily_loss:

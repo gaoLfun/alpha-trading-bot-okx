@@ -64,6 +64,9 @@ class ConsolidationDetector:
             # 获取币种特异性参数
             params = CONSOLIDATION_PARAMS.get(symbol, CONSOLIDATION_PARAMS['DEFAULT'])
 
+            # 动态参数调整：根据市场波动率调整阈值
+            params = self._adjust_params_by_volatility(market_data, params)
+
             # 1. 基础数据检查
             if not self._validate_market_data(market_data):
                 return False, "市场数据不完整", 0.0
@@ -80,30 +83,31 @@ class ConsolidationDetector:
             # 5. 成交量分析
             volume_score = self._volume_analysis(market_data)
 
-            # 6. 综合评分
+            # 6. 综合评分（调整权重：增加成交量权重）
             final_score = (
-                consolidation_score * 0.3 +
+                consolidation_score * 0.25 +  # 降低多时间框架权重
                 technical_score * 0.25 +
                 volatility_score * 0.25 +
-                volume_score * 0.2
+                volume_score * 0.25  # 增加成交量权重至25%
             )
 
             # 7. 生成结果
-            is_consolidation = final_score > 0.7
+            # 调整阈值：从0.7降低到0.5，适应低波动市场环境
+            is_consolidation = final_score > 0.5
             confidence = min(final_score, 0.95)
             reason = self._generate_reason(final_score, consolidation_score, technical_score, volatility_score)
 
             # 增强日志：显示详细评分和阈值对比
             logger.info(f"横盘检测结果: {is_consolidation}")
             logger.info(f"📊 综合评分详情:")
-            logger.info(f"   最终评分: {final_score:.3f} (阈值: 0.7)")
-            logger.info(f"   多时间框架评分: {consolidation_score:.3f} (权重: 30%)")
+            logger.info(f"   最终评分: {final_score:.3f} (阈值: 0.5)")
+            logger.info(f"   多时间框架评分: {consolidation_score:.3f} (权重: 25%)")
             logger.info(f"   技术指标评分: {technical_score:.3f} (权重: 25%)")
             logger.info(f"   波动率评分: {volatility_score:.3f} (权重: 25%)")
-            logger.info(f"   成交量评分: {volume_score:.3f} (权重: 20%)")
+            logger.info(f"   成交量评分: {volume_score:.3f} (权重: 25%)")
 
             # 如果评分低，显示具体原因
-            if final_score < 0.7:
+            if final_score < 0.5:
                 low_score_reasons = []
                 if consolidation_score < 0.5:
                     low_score_reasons.append(f"价格未处于中间区域 ({consolidation_score:.2f} < 0.5)")
@@ -118,9 +122,9 @@ class ConsolidationDetector:
                     logger.info(f"❌ 低评分原因: {'; '.join(low_score_reasons)}")
 
                 # 显示具体的阈值比较结果
-                logger.info(f"评分 {final_score:.2f} < 0.7 (阈值)，判定为非横盘状态")
+                logger.info(f"评分 {final_score:.2f} < 0.5 (阈值)，判定为非横盘状态")
             else:
-                logger.info(f"✅ 评分 {final_score:.2f} ≥ 0.7 (阈值)，判定为横盘状态")
+                logger.info(f"✅ 评分 {final_score:.2f} ≥ 0.5 (阈值)，判定为横盘状态")
 
             logger.info(f"横盘检测结果: {is_consolidation}, 评分: {final_score:.2f}, 原因: {reason}")
 
@@ -129,6 +133,40 @@ class ConsolidationDetector:
         except Exception as e:
             logger.error(f"横盘检测失败: {e}")
             return False, f"检测失败: {str(e)}", 0.0
+
+    def _adjust_params_by_volatility(self, market_data: Dict[str, Any], params: Dict[str, float]) -> Dict[str, float]:
+        """根据市场波动率动态调整参数"""
+        try:
+            # 获取ATR波动率
+            technical_data = market_data.get('technical_data', {})
+            atr_pct = float(technical_data.get('atr_pct', 0))
+
+            # 低波动率环境（ATR < 1.5%）
+            if atr_pct < 1.5:
+                # 降低横盘检测阈值，更容易识别横盘
+                adjusted_params = params.copy()
+                adjusted_params['atr_threshold'] *= 1.2  # 增加20%，适应低波动
+                adjusted_params['bb_width_threshold'] *= 0.8  # 降低20%，更容易识别横盘
+                adjusted_params['price_range_threshold'] *= 0.7  # 降低30%，适应窄幅波动
+                logger.debug(f"低波动率环境检测：ATR={atr_pct:.2f}%，调整横盘参数")
+                return adjusted_params
+
+            # 高波动率环境（ATR > 3%）
+            elif atr_pct > 3.0:
+                # 提高横盘检测阈值，避免误判
+                adjusted_params = params.copy()
+                adjusted_params['atr_threshold'] *= 0.8  # 降低20%
+                adjusted_params['bb_width_threshold'] *= 1.2  # 增加20%
+                adjusted_params['price_range_threshold'] *= 1.3  # 增加30%
+                logger.debug(f"高波动率环境检测：ATR={atr_pct:.2f}%，调整横盘参数")
+                return adjusted_params
+
+            # 正常波动率环境
+            return params
+
+        except Exception as e:
+            logger.warning(f"动态参数调整失败: {e}，使用默认参数")
+            return params
 
     def _validate_market_data(self, market_data: Dict[str, Any]) -> bool:
         """验证市场数据完整性"""
@@ -143,28 +181,55 @@ class ConsolidationDetector:
         try:
             current_price = float(market_data['price'])
 
-            # 1小时级别（短期）
-            hourly_high = float(market_data.get('hourly_high', market_data['high']))
-            hourly_low = float(market_data.get('hourly_low', market_data['low']))
-            hourly_position = (current_price - hourly_low) / (hourly_high - hourly_low) if hourly_high != hourly_low else 0.5
+            # 获取多时间框架数据
+            multi_timeframe = market_data.get('multi_timeframe', {})
 
-            # 4小时级别（中期）
-            four_hour_high = float(market_data.get('4h_high', market_data['high']))
-            four_hour_low = float(market_data.get('4h_low', market_data['low']))
-            four_hour_position = (current_price - four_hour_low) / (four_hour_high - four_hour_low) if four_hour_high != four_hour_low else 0.5
+            scores = []
+            weights = []
 
-            # 24小时级别（长期）
-            daily_high = float(market_data['high'])
-            daily_low = float(market_data['low'])
-            daily_position = (current_price - daily_low) / (daily_high - daily_low) if daily_high != daily_low else 0.5
+            # 15分钟框架（主时间框架）
+            if '15m' in multi_timeframe and len(multi_timeframe['15m']) >= 20:
+                ohlcv_15m = multi_timeframe['15m'][-20:]  # 最近20根K线
+                high_15m = max(candle[2] for candle in ohlcv_15m)
+                low_15m = min(candle[3] for candle in ohlcv_15m)
+                position_15m = (current_price - low_15m) / (high_15m - low_15m) if high_15m != low_15m else 0.5
+                score_15m = 1.0 - abs(position_15m - 0.5) * 2
+                scores.append(score_15m)
+                weights.append(0.4)  # 主时间框架权重最高
 
-            # 评分逻辑：价格越接近中间位置，横盘可能性越高
-            hourly_score = 1.0 - abs(hourly_position - 0.5) * 2
-            four_hour_score = 1.0 - abs(four_hour_position - 0.5) * 2
-            daily_score = 1.0 - abs(daily_position - 0.5) * 2
+            # 1小时框架
+            if '1h' in multi_timeframe and len(multi_timeframe['1h']) >= 20:
+                ohlcv_1h = multi_timeframe['1h'][-20:]
+                high_1h = max(candle[2] for candle in ohlcv_1h)
+                low_1h = min(candle[3] for candle in ohlcv_1h)
+                position_1h = (current_price - low_1h) / (high_1h - low_1h) if high_1h != low_1h else 0.5
+                score_1h = 1.0 - abs(position_1h - 0.5) * 2
+                scores.append(score_1h)
+                weights.append(0.35)
 
-            # 权重：长期更重要
-            return hourly_score * 0.2 + four_hour_score * 0.3 + daily_score * 0.5
+            # 4小时框架
+            if '4h' in multi_timeframe and len(multi_timeframe['4h']) >= 15:
+                ohlcv_4h = multi_timeframe['4h'][-15:]
+                high_4h = max(candle[2] for candle in ohlcv_4h)
+                low_4h = min(candle[3] for candle in ohlcv_4h)
+                position_4h = (current_price - low_4h) / (high_4h - low_4h) if high_4h != low_4h else 0.5
+                score_4h = 1.0 - abs(position_4h - 0.5) * 2
+                scores.append(score_4h)
+                weights.append(0.25)
+
+            # 如果没有多时间框架数据，使用日线数据
+            if not scores:
+                daily_high = float(market_data['high'])
+                daily_low = float(market_data['low'])
+                daily_position = (current_price - daily_low) / (daily_high - daily_low) if daily_high != daily_low else 0.5
+                daily_score = 1.0 - abs(daily_position - 0.5) * 2
+                return daily_score
+
+            # 加权平均
+            total_weight = sum(weights)
+            weighted_score = sum(score * weight for score, weight in zip(scores, weights)) / total_weight
+
+            return weighted_score
 
         except Exception as e:
             logger.error(f"多时间框架分析失败: {e}")
