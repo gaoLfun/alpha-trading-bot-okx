@@ -145,7 +145,6 @@ Thumbs.db
 .env.local
 .env.production
 logs/
-data/
 data_json/
 .trading_history
 *.db
