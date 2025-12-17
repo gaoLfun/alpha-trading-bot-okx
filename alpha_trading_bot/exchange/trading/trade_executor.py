@@ -528,7 +528,15 @@ class TradeExecutor(BaseComponent):
                 if tp_needs_update:
                     logger.info(f"止盈需要更新: 当前=${current_tp['triggerPx']:.2f} → 新=${new_take_profit:.2f}")
                 else:
-                    logger.info(f"止盈无需更新: 当前价格接近目标")
+                    # 详细打印无需更新的原因
+                    logger.info("📝 止盈无需更新详细原因:")
+                    logger.info(f"   当前价格: ${current_price:.2f}")
+                    logger.info(f"   现有止盈价格: ${current_tp['triggerPx']:.2f}")
+                    logger.info(f"   新的止盈价格: ${new_take_profit:.2f}")
+                    logger.info(f"   价格差异: ${tp_price_diff:.2f}")
+                    logger.info(f"   更新阈值: ${current_price * 0.001:.2f} (当前价格的0.1%)")
+                    logger.info(f"   判断: ${tp_price_diff:.2f} < ${current_price * 0.001:.2f}，差异过小")
+                    logger.info(f"   结果: 保持现有止盈订单，避免频繁调整")
             else:
                 tp_needs_update = True  # 没有现有止盈订单，需要创建
                 logger.info("没有找到现有止盈订单，需要创建")
