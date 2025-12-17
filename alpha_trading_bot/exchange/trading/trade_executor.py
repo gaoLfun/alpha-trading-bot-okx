@@ -368,27 +368,30 @@ class TradeExecutor(BaseComponent):
             existing_orders = await self.order_manager.fetch_algo_orders(symbol)
             logger.info(f"找到 {len(existing_orders)} 个现有算法订单")
 
+            # 打印订单详情以便调试
+            for i, order in enumerate(existing_orders):
+                logger.info(f"订单 {i+1}: ID={order.order_id}, 价格={order.price}, 方向={order.side.value}")
+
             # 分离止盈和止损订单
             current_tp = None
             current_sl = None
 
             for order in existing_orders:
-                order_type = order.get('ordType', '').lower()
-                algo_id = order.get('algoId', '')
-                trigger_price = float(order.get('triggerPx', 0))
+                # OrderResult 对象的处理方式
+                algo_id = order.order_id
+                trigger_price = order.price
 
-                if order_type == 'trigger':
-                    # 判断是止盈还是止损订单
-                    if current_position.side == TradeSide.LONG:
-                        if trigger_price > current_price:
-                            current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
-                        elif trigger_price < current_price:
-                            current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
-                    else:  # SHORT
-                        if trigger_price < current_price:
-                            current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
-                        elif trigger_price > current_price:
-                            current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
+                # 通过触发价格与当前价格的关系来判断是止盈还是止损订单
+                if current_position.side == TradeSide.LONG:
+                    if trigger_price > current_price:
+                        current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
+                    elif trigger_price < current_price:
+                        current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
+                else:  # SHORT
+                    if trigger_price < current_price:
+                        current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
+                    elif trigger_price > current_price:
+                        current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
 
             # 只检查和处理止盈订单
             tp_needs_update = False
