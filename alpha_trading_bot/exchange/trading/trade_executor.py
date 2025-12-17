@@ -99,15 +99,15 @@ class TradeExecutor(BaseComponent):
                     # 检查信号方向是否与持仓一致
                     if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
                        (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
-                        logger.info("信号方向与现有持仓一致，考虑加仓操作")
+                        logger.info("信号方向与现有持仓一致")
 
-                        # 只有在加仓功能启用时才更新止盈止损
-                        if self.config.enable_tp_sl and self.config.enable_add_position:
-                            logger.info(f"加仓功能启用，更新现有持仓的止盈止损: {symbol}")
+                        # 有持仓时更新止盈止损（与加仓功能无关）
+                        if self.config.enable_tp_sl:
+                            logger.info(f"检测到同向信号，更新现有持仓止盈止损: {symbol}")
                             await self._check_and_update_tp_sl(symbol, side, current_position)
                             logger.info(f"止盈止损更新完成")
                         else:
-                            logger.info(f"加仓功能已禁用，跳过止盈止损更新: {symbol}")
+                            logger.info(f"止盈止损功能已禁用，跳过更新: {symbol}")
 
                         # 检查是否允许加仓
                         if not self.config.enable_add_position:
@@ -196,18 +196,10 @@ class TradeExecutor(BaseComponent):
                     logger.info(f"新仓位创建止盈止损: {symbol}")
                     await self._set_tp_sl(symbol, side, filled_order)
                 else:
-                    # 已有仓位，检查是否需要更新止盈止损
-                    # 只有在加仓功能启用且确实有加仓时才更新止盈止损
+                    # 已有仓位，更新止盈止损（与加仓功能无关）
                     if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
                        (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
-                        # 检查加仓功能是否启用
-                        if not self.config.enable_add_position:
-                            logger.info(f"加仓功能已禁用，不更新止盈止损: {symbol}")
-                            return TradeResult(
-                                success=False,
-                                error_message="加仓功能已禁用"
-                            )
-                        logger.info(f"加仓操作，更新止盈止损: {symbol}")
+                        logger.info(f"同向信号，更新现有持仓止盈止损: {symbol}")
                         await self._check_and_update_tp_sl(symbol, side, current_position)
                     else:
                         # 方向相反，说明是平仓后反向开仓，创建新的止盈止损
