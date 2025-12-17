@@ -19,8 +19,17 @@ class StrategyManagerConfig(BaseConfig):
     default_strategy: str = "conservative"
     max_active_strategies: int = 3
 
-class StrategyManager(BaseComponent):
     """策略管理器"""
+
+    async def _check_allow_short_selling(self) -> bool:
+        """检查是否允许做空"""
+        try:
+            from alpha_trading_bot.config import get_config_manager
+            config_manager = await get_config_manager()
+            return config_manager.trading.allow_short_selling
+        except Exception as e:
+            logger.error(f"检查做空配置失败: {e}，默认允许做空")
+            return True
 
     def __init__(self, config: Optional[StrategyManagerConfig] = None, ai_manager: Optional[Any] = None):
         # 如果没有提供配置，创建默认配置
@@ -104,8 +113,24 @@ class StrategyManager(BaseComponent):
 
             # 转换AI信号为策略信号
             for ai_signal in ai_signals:
+                signal_type = ai_signal.get('signal', 'HOLD').lower()
+
+                # 检查做空设置
+                if signal_type == 'sell':
+                    # 获取交易配置
+                    try:
+                        from alpha_trading_bot.config import get_config_manager
+                        config_manager = await get_config_manager()
+                        trading_config = config_manager.trading
+
+                        if not trading_config.allow_short_selling:
+                            logger.warning(f"AI生成的SELL信号被忽略：做空功能已禁用(allow_short_selling={trading_config.allow_short_selling})")
+                            continue
+                    except Exception as e:
+                        logger.error(f"检查做空配置失败: {e}，继续处理信号")
+
                 signal = {
-                    'type': ai_signal.get('signal', 'HOLD').lower(),
+                    'type': signal_type,
                     'confidence': ai_signal.get('confidence', 0.5),
                     'reason': ai_signal.get('reason', 'AI分析'),
                     'source': 'ai',
@@ -358,6 +383,11 @@ class StrategyManager(BaseComponent):
                             'timestamp': datetime.now()
                         })
                     elif price_position > 0.7:  # 较早卖出，锁定利润
+                        # 检查是否允许做空
+                        if not await self._check_allow_short_selling():
+                            logger.info("保守策略：做空被禁用，跳过sell信号")
+                            continue
+
                         signals.append({
                             'type': 'sell',
                             'confidence': 0.7,
@@ -382,6 +412,11 @@ class StrategyManager(BaseComponent):
                             'timestamp': datetime.now()
                         })
                     elif price_position > 0.75:  # 中等卖出门槛
+                        # 检查是否允许做空
+                        if not await self._check_allow_short_selling():
+                            logger.info("中等策略：做空被禁用，跳过sell信号")
+                            continue
+
                         signals.append({
                             'type': 'sell',
                             'confidence': 0.75,
@@ -406,6 +441,11 @@ class StrategyManager(BaseComponent):
                             'timestamp': datetime.now()
                         })
                     elif price_position > 0.85:  # 极高点卖出，追求最大化利润
+                        # 检查是否允许做空
+                        if not await self._check_allow_short_selling():
+                            logger.info("激进策略：做空被禁用，跳过sell信号")
+                            continue
+
                         signals.append({
                             'type': 'sell',
                             'confidence': 0.8,

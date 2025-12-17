@@ -66,6 +66,21 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"执行交易: {symbol} {side.value} {amount} @ {price or 'market'} - {reason}")
 
+            # 检查是否允许做空（新增检查）
+            if side == TradeSide.SELL and not self.config.allow_short_selling:
+                # 检查是否有现有持仓
+                await self.position_manager.update_position(self.exchange_client, symbol)
+                current_position = self.position_manager.get_position(symbol)
+
+                if not current_position or current_position.side == TradeSide.LONG:
+                    logger.warning(f"做空被禁用(allow_short_selling={self.config.allow_short_selling})，跳过SELL信号 - {symbol}")
+                    return TradeResult(
+                        success=False,
+                        error_message="做空功能已禁用"
+                    )
+                else:
+                    logger.info(f"已有空头持仓，允许继续做空操作 - {symbol}")
+
             # 0. 检查现有持仓状态（如果启用）
             current_position = None
             if self.config.enable_position_check:
