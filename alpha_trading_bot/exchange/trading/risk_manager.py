@@ -148,10 +148,11 @@ class RiskManager(BaseComponent):
                     if signal_type in ['BUY', 'SELL']:
                         # 验证交易数量，确保满足最小交易量要求
                         amount = signal.get('size', 1.0)  # 默认交易量1张
+                        symbol = signal.get('symbol', 'BTC/USDT:USDT')
 
                         # 获取合约大小来计算最小BTC数量
                         contract_size = 0.01  # BTC/USDT:USDT默认合约大小
-                        if self.config.symbol in ['BTC/USDT:USDT', 'BTC-USDT-SWAP']:
+                        if symbol in ['BTC/USDT:USDT', 'BTC-USDT-SWAP']:
                             # OKX要求最小0.01 BTC，合约大小0.01 BTC/张，所以最小1张
                             min_contracts = 1.0
                             if amount < min_contracts:
