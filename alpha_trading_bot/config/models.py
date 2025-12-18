@@ -59,7 +59,7 @@ class StrategyConfig:
     price_crash_protection_enabled: bool = True
     # 止盈止损配置
     take_profit_percent: float = 0.06  # 止盈百分比 (6%)
-    stop_loss_percent: float = 0.02    # 止损百分比 (2%)
+    stop_loss_percent: float = 0.01    # 止损百分比 (1%)
 
 @dataclass
 class RiskConfig:
