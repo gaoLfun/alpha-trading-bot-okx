@@ -38,8 +38,8 @@ class ExchangeConfig:
 class TradingConfig:
     """交易配置"""
     test_mode: bool = True
-    max_position_size: float = 0.01
-    min_trade_amount: float = 0.0005
+    max_position_size: float = 1.0  # 默认1张（满足OKX最小交易量要求）
+    min_trade_amount: float = 1.0  # 最小交易量1张（满足OKX最小交易量要求）
     leverage: int = 10
     cycle_minutes: int = 15
     margin_mode: str = 'cross'

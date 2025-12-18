@@ -947,7 +947,7 @@ class StrategyManager(BaseComponent):
             optimized_params = {
                 'take_profit': parameters.get('take_profit', 0.06) * 1.1,
                 'stop_loss': parameters.get('stop_loss', 0.02) * 0.9,
-                'position_size': parameters.get('position_size', 0.01) * 1.05
+                'position_size': parameters.get('position_size', 1.0) * 1.05
             }
 
             result = {

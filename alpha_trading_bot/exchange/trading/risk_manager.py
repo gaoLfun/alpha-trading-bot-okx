@@ -146,10 +146,22 @@ class RiskManager(BaseComponent):
                     # 获取信号类型
                     signal_type = signal.get('signal', signal.get('type', 'HOLD')).upper()
                     if signal_type in ['BUY', 'SELL']:
+                        # 验证交易数量，确保满足最小交易量要求
+                        amount = signal.get('size', 1.0)  # 默认交易量1张
+
+                        # 获取合约大小来计算最小BTC数量
+                        contract_size = 0.01  # BTC/USDT:USDT默认合约大小
+                        if self.config.symbol in ['BTC/USDT:USDT', 'BTC-USDT-SWAP']:
+                            # OKX要求最小0.01 BTC，合约大小0.01 BTC/张，所以最小1张
+                            min_contracts = 1.0
+                            if amount < min_contracts:
+                                logger.warning(f"交易数量 {amount} 张小于最小要求 {min_contracts} 张，调整为 {min_contracts} 张")
+                                amount = min_contracts
+
                         trade_request = {
                             'symbol': signal.get('symbol', 'BTC/USDT:USDT'),
                             'side': 'buy' if signal_type == 'BUY' else 'sell',
-                            'amount': signal.get('size', 0.01),  # 默认交易量
+                            'amount': amount,
                             'type': 'market',
                             'price': signal.get('price') or current_price,  # 使用当前价格如果信号中没有价格
                             'current_price': current_price,
