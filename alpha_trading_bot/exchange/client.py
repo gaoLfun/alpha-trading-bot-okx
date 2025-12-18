@@ -366,6 +366,15 @@ class ExchangeClient:
                 params=params
             )
 
+            # 调试：检查订单状态
+            logger.info(f"[交易所客户端] 订单创建成功 - ID: {order['id']}, 状态: {order.get('status', 'None')}, 数量: {order['amount']}, 价格: {order.get('price', 0)}")
+
+            # 处理可能的None状态
+            order_status = order.get('status')
+            if order_status is None:
+                logger.warning("[交易所客户端] 订单状态为None，使用默认值")
+                order_status = 'closed'  # 市价单默认已成交
+
             return OrderResult(
                 success=True,
                 order_id=order['id'],
@@ -376,7 +385,7 @@ class ExchangeClient:
                 price=order.get('price', 0),
                 filled_amount=order.get('filled', 0),
                 average_price=order.get('average', 0),
-                status=OrderStatus(order['status'])
+                status=OrderStatus(order_status)
             )
 
         except Exception as e:
