@@ -135,12 +135,36 @@ class DataManager(BaseComponent):
         try:
             backup_file = Path(self.config.json_backup_path) / "ai_signals.json"
 
-            # 读取现有数据
+            # 读取现有数据，处理可能的文件损坏
+            data = []
             if backup_file.exists():
-                with open(backup_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-            else:
-                data = []
+                try:
+                    with open(backup_file, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        # 检查文件是否为空或只有空白
+                        if content:
+                            # 尝试修复不完整的JSON（缺少闭合括号）
+                            if not content.endswith(']'):
+                                # 找到最后一个完整的对象结尾
+                                last_valid_end = content.rfind('}')
+                                if last_valid_end != -1:
+                                    # 保留到完整对象结束的部分
+                                    content = content[:last_valid_end + 1] + ']'
+                                else:
+                                    # 如果没有找到完整对象，清空数据
+                                    content = '[]'
+
+                            # 解析JSON
+                            data = json.loads(content)
+                        else:
+                            data = []
+                except (json.JSONDecodeError, IOError) as e:
+                    logger.warning(f"读取现有JSON文件失败，将创建新文件: {e}")
+                    # 备份损坏的文件
+                    backup_corrupted = backup_file.with_suffix('.json.corrupted')
+                    backup_file.rename(backup_corrupted)
+                    logger.info(f"已备份损坏的文件到: {backup_corrupted}")
+                    data = []
 
             # 添加新数据
             data.append(signal.to_dict())
@@ -149,9 +173,15 @@ class DataManager(BaseComponent):
             if len(data) > 1000:
                 data = data[-1000:]
 
-            # 写回文件
-            with open(backup_file, 'w', encoding='utf-8') as f:
+            # 写回文件（使用临时文件确保原子性）
+            temp_file = backup_file.with_suffix('.tmp')
+            with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+
+            # 原子替换原文件
+            temp_file.replace(backup_file)
+
+            logger.info(f"成功备份AI信号到JSON: {backup_file}")
 
         except Exception as e:
             logger.error(f"备份AI信号到JSON失败: {e}")
