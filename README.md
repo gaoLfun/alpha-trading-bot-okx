@@ -138,38 +138,87 @@ if __name__ == "__main__":
 
 ```
 alpha_trading_bot/
-├── __init__.py          # 简化API导出
-├── core/                # 核心基础模块
-│   ├── base.py         # 基础数据结构和组件
-│   ├── bot.py          # 交易机器人主类
-│   └── exceptions.py   # 自定义异常
-├── config/              # 配置管理
-│   ├── manager.py      # 配置管理器
-│   └── models.py       # 配置数据模型
-├── exchange/            # 交易所交互
-│   ├── engine.py       # 交易引擎
-│   ├── client.py       # 交易所客户端
-│   ├── models.py       # 订单、仓位等模型
-│   └── trading/        # 交易管理子模块
-├── strategies/          # 交易策略
-│   ├── manager.py      # 策略管理器
-│   ├── base.py         # 基础策略类
-│   ├── analyzer.py     # 市场分析器
-│   └── optimization/   # 策略优化
-├── ai/                  # AI信号生成
-│   ├── manager.py      # AI管理器
-│   ├── client.py       # AI客户端
-│   ├── fusion.py       # AI融合决策
-│   └── providers/      # AI提供商实现
-├── utils/               # 工具模块
-│   ├── logging.py      # 日志工具
-│   ├── cache.py        # 缓存管理
-│   └── monitoring.py   # 系统监控
-├── api/                 # 对外API
-│   └── bot_api.py      # 机器人管理API
-└── cli/                 # 命令行接口
-    └── main.py         # CLI主程序
+├── __init__.py                    # 简化API导出
+├── core/                          # 核心基础模块
+│   ├── __init__.py               # 核心模块初始化
+│   ├── base.py                   # 基础数据结构和组件（147行）
+│   ├── bot.py                    # 交易机器人主类（729行，核心机器人逻辑）
+│   ├── exceptions.py             # 自定义异常（34行）
+│   ├── health_check.py           # 健康检查模块（245行）
+│   └── monitor.py                # 系统监控器（311行）
+├── config/                        # 配置管理
+│   ├── __init__.py               # 配置模块初始化（32行）
+│   ├── manager.py                # 配置管理器（285行，配置加载与验证）
+│   └── models.py                 # 配置数据模型（112行，所有配置定义）
+├── exchange/                      # 交易所交互
+│   ├── __init__.py               # 交易所模块初始化
+│   ├── engine.py                 # 交易引擎（503行，核心交易逻辑）
+│   ├── client.py                 # 交易所客户端（621行，OKX API封装）
+│   ├── models.py                 # 订单、仓位等模型（174行，数据模型定义）
+│   ├── trade_executor.py         # 交易执行器（旧版，兼容支持）
+│   └── trading/                  # 交易管理子模块
+│       ├── __init__.py           # 交易子模块初始化
+│       ├── order_manager.py      # 订单管理器（380行，订单全生命周期管理）
+│       ├── position_manager.py   # 仓位管理器（192行，仓位监控与操作）
+│       ├── risk_manager.py       # 风险管理器（444行，三级风控体系）
+│       └── trade_executor.py     # 新版交易执行器（825行，追踪止损实现）
+├── strategies/                    # 交易策略
+│   ├── __init__.py               # 策略模块初始化
+│   ├── manager.py                # 策略管理器（1044行，核心策略逻辑）
+│   └── consolidation.py          # 横盘检测策略（472行，多维度横盘识别）
+├── ai/                            # AI信号生成
+│   ├── __init__.py               # AI模块初始化（39行）
+│   ├── cache/                    # AI缓存模块
+│   │   └── __init__.py           # 缓存模块初始化（0行，占位模块）
+│   ├── providers/                # AI提供商实现
+│   │   ├── __init__.py           # 提供商模块初始化（16行）
+│   │   ├── base.py               # 基础提供商类（76行，提供商基类）
+│   │   ├── deepseek.py           # DeepSeek提供商（105行）
+│   │   ├── kimi.py               # Kimi提供商（105行）
+│   │   ├── openai.py             # OpenAI提供商（105行）
+│   │   └── qwen.py               # Qwen提供商（105行）
+│   ├── client.py                 # AI客户端（611行，AI服务封装）
+│   ├── fusion.py                 # AI融合决策（408行，多AI信号融合）
+│   ├── manager.py                # AI管理器（470行，AI服务管理）
+│   ├── model_selector.py         # AI模型选择器（223行，模型选择逻辑）
+│   └── signals.py                # AI信号生成器（455行，信号转换处理）
+├── utils/                         # 工具模块
+│   ├── __init__.py               # 工具模块初始化（16行）
+│   ├── cache.py                  # 缓存管理（125行，内存缓存实现）
+│   ├── crash_detector.py         # 暴跌检测器（323行，多时间框架检测）
+│   ├── data_validation.py        # 数据验证模块（0行，占位模块）
+│   ├── error_recovery.py         # 错误恢复模块（0行，占位模块）
+│   ├── logging.py                # 日志工具（274行，日志配置与工具）
+│   ├── monitoring.py             # 系统监控模块（0行，占位模块）
+│   ├── smart_logger.py           # 智能日志管理器（146行，按日期切分日志）
+│   ├── system_utils.py           # 系统工具模块（0行，占位模块）
+│   ├── technical.py              # 技术指标库（465行，全套技术指标）
+│   └── time_helper.py            # 时间助手模块（0行，占位模块）
+├── data/                          # 数据管理
+│   ├── __init__.py               # 数据模块初始化（20行）
+│   ├── database.py               # 数据库管理（505行，数据存储与查询）
+│   ├── manager.py                # 数据管理器（452行，数据业务逻辑）
+│   └── models.py                 # 数据模型（248行，数据结构定义）
+├── api/                           # 对外API
+│   ├── __init__.py               # API模块初始化（26行）
+│   ├── bot_api.py                # 机器人管理API（181行，RESTful API）
+│   └── client.py                 # API客户端（121行，API调用封装）
+└── cli/                           # 命令行接口
+    ├── __init__.py               # CLI模块初始化（6行）
+    └── main.py                   # CLI主程序（144行，命令行入口）
 ```
+
+## 项目规模
+
+- **总代码行数**: 约13,381行Python代码
+- **核心模块**:
+  - 交易执行: 825行（新版追踪止损实现）
+  - 策略管理: 1,044行（核心策略逻辑）
+  - AI系统: 2,000+行（多AI集成与融合）
+  - 风险管理: 444行（三级风控体系）
+- **模块数量**: 7大模块，50+子模块
+- **功能覆盖**: 从信号生成到交易执行完整链路
+- **代码质量**: 模块化设计，高内聚低耦合
 
 ## 配置说明
 
