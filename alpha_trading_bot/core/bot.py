@@ -597,6 +597,10 @@ class TradingBot(BaseComponent):
                     self.enhanced_logger.logger.info(f"✅ 交易执行完成，成功执行 {executed_trades}/{len(trades)} 笔交易")
 
                     # 在15分钟周期内执行标记的TP/SL更新
+                    # 先更新仓位信息，确保获取最新数据
+                    self.enhanced_logger.logger.info("📊 更新仓位信息...")
+                    await self.trading_engine.position_manager.update_position(self.trading_engine.exchange_client, "BTC/USDT:USDT")
+
                     # 获取所有需要更新的持仓
                     positions = self.trading_engine.position_manager.get_all_positions()
                     if positions:
@@ -617,6 +621,10 @@ class TradingBot(BaseComponent):
 
                     # 检查持仓是否需要创建缺失的止盈止损订单
                     self.enhanced_logger.logger.info("🔍 检查持仓是否需要创建止盈止损订单...")
+                    # 先更新仓位信息，确保获取最新数据
+                    self.enhanced_logger.logger.info("📊 更新仓位信息...")
+                    await self.trading_engine.position_manager.update_position(self.trading_engine.exchange_client, "BTC/USDT:USDT")
+
                     positions = self.trading_engine.position_manager.get_all_positions()
                     if positions:
                         for position in positions:
