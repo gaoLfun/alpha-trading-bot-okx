@@ -98,10 +98,19 @@ class TradeExecutor(BaseComponent):
                 if current_position:
                     logger.info(f"检测到现有持仓: {symbol} {current_position.side.value} {current_position.amount}")
 
-                    # 检查信号方向是否与持仓一致
-                    if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
-                       (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
-                        logger.info("信号方向与现有持仓一致")
+                    # 严格检查仓位数量，避免对0仓位进行操作
+                    if current_position.amount <= 0:
+                        logger.warning(f"检测到仓位数量为 {current_position.amount}，视为无有效持仓，执行新开仓")
+                        # 清理无效仓位缓存
+                        if self.position_manager.has_position(symbol):
+                            logger.info(f"清理无效仓位缓存: {symbol}")
+                        # 继续执行新开仓逻辑，不进入持仓处理分支
+                    else:
+                        # 正常的持仓处理逻辑
+                        # 检查信号方向是否与持仓一致
+                        if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
+                           (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
+                            logger.info("信号方向与现有持仓一致")
 
                         # 有持仓时更新止盈止损（与加仓功能无关）
                         if self.config.enable_tp_sl:
@@ -135,18 +144,6 @@ class TradeExecutor(BaseComponent):
                         amount = amount * self.config.add_position_ratio
                         logger.info(f"调整后的加仓量: {amount}")
 
-                    else:
-                        logger.info("信号方向与现有持仓相反，执行平仓操作")
-                        # 先平仓当前持仓
-                        close_result = await self._close_position(symbol)
-                        if not close_result.success:
-                            return close_result
-
-                        # 检查是否真的需要反向开仓
-                        if current_position.amount <= 0:
-                            logger.info(f"当前仓位数量为 {current_position.amount}，无需反向开仓，直接执行新开仓")
-                        else:
-                            logger.info("平仓完成，准备执行反向开仓")
                 else:
                     logger.info("当前无持仓，执行开仓操作")
 
