@@ -389,6 +389,93 @@ class TradeExecutor(BaseComponent):
 
         return take_profit_pct, stop_loss_pct
 
+    async def check_and_create_missing_tp_sl(self, symbol: str, current_position: PositionInfo) -> None:
+        """检查并为没有止盈止损订单的持仓创建订单"""
+        try:
+            if not current_position or current_position.amount <= 0:
+                return
+
+            # 获取现有的算法订单
+            existing_orders = await self.order_manager.fetch_algo_orders(symbol)
+            logger.info(f"检查持仓 {symbol} 的止盈止损订单状态，找到 {len(existing_orders)} 个现有算法订单")
+
+            # 检查是否有止盈或止损订单
+            has_tp = False
+            has_sl = False
+
+            for order in existing_orders:
+                if current_position.side == TradeSide.LONG:
+                    if order.price > current_position.mark_price:
+                        has_tp = True
+                    elif order.price < current_position.mark_price:
+                        has_sl = True
+                else:  # SHORT
+                    if order.price < current_position.mark_price:
+                        has_tp = True
+                    elif order.price > current_position.mark_price:
+                        has_sl = True
+
+            # 如果没有止盈或止损订单，创建它们
+            if not has_tp or not has_sl:
+                logger.warning(f"持仓 {symbol} 缺少止盈止损订单（TP: {has_tp}, SL: {has_sl}），正在创建...")
+
+                # 获取当前价格
+                current_price = await self._get_current_price(symbol)
+
+                # 计算止盈止损价格
+                take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
+
+                if current_position.side == TradeSide.LONG:
+                    new_take_profit = current_price * (1 + take_profit_pct)
+                    new_stop_loss = current_position.entry_price * (1 - stop_loss_pct)
+                    tp_side = TradeSide.SELL
+                    sl_side = TradeSide.SELL
+                else:  # SHORT
+                    new_take_profit = current_price * (1 - take_profit_pct)
+                    new_stop_loss = current_position.entry_price * (1 + stop_loss_pct)
+                    tp_side = TradeSide.BUY
+                    sl_side = TradeSide.BUY
+
+                # 创建缺失的订单
+                created_count = 0
+
+                if not has_tp:
+                    logger.info(f"创建止盈订单: {symbol} {tp_side.value} {current_position.amount} @ ${new_take_profit:.2f}")
+                    tp_result = await self.order_manager.create_take_profit_order(
+                        symbol=symbol,
+                        side=tp_side,
+                        amount=current_position.amount,
+                        take_profit_price=new_take_profit,
+                        reduce_only=True
+                    )
+                    if tp_result.success:
+                        logger.info(f"✓ 止盈订单创建成功: ID={tp_result.order_id}")
+                        created_count += 1
+                    else:
+                        logger.error(f"✗ 止盈订单创建失败: {tp_result.error_message}")
+
+                if not has_sl:
+                    logger.info(f"创建止损订单: {symbol} {sl_side.value} {current_position.amount} @ ${new_stop_loss:.2f}")
+                    sl_result = await self.order_manager.create_stop_order(
+                        symbol=symbol,
+                        side=sl_side,
+                        amount=current_position.amount,
+                        stop_price=new_stop_loss,
+                        reduce_only=True
+                    )
+                    if sl_result.success:
+                        logger.info(f"✓ 止损订单创建成功: ID={sl_result.order_id}")
+                        created_count += 1
+                    else:
+                        logger.error(f"✗ 止损订单创建失败: {sl_result.error_message}")
+
+                logger.info(f"止盈止损订单创建完成: 创建了 {created_count} 个新订单")
+
+        except Exception as e:
+            logger.error(f"检查并创建缺失的止盈止损订单失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+
     async def _check_and_update_tp_sl(self, symbol: str, side: TradeSide, current_position: PositionInfo, min_price_change_pct: float = 0.01) -> None:
         """检查并更新止盈止损 - 实现追踪止损逻辑"""
         try:
