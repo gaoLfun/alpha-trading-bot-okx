@@ -541,6 +541,10 @@ class TradeExecutor(BaseComponent):
                     # 从现有订单列表中移除
                     existing_orders = [o for o in existing_orders if o.order_id != order.order_id]
 
+            # 初始化变量，避免未定义错误
+            current_tp = None
+            current_sl = None
+
             for order in existing_orders:
                 # OrderResult 对象的处理方式
                 algo_id = order.order_id
