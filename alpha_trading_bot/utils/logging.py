@@ -146,7 +146,7 @@ class EnhancedLogger:
         self.logger.info(f"⏱️  执行耗时: {execution_time:.2f}秒")
         self.logger.info(f"📊 信号统计: 生成 {total_signals} 个信号，执行 {executed_trades} 笔交易")
         self.logger.info(f"⏰ 下次执行时间: {next_execution_time}")
-        self.logger.info(f"⏰ 等待 {wait_time} 到下一个15分钟整点执行...")
+        self.logger.info(f"⏰ 等待 {wait_time} 到下一个周期执行...")
         self.logger.info("=" * 60)
 
     def info_ai_signal_success(self, provider: str, signal: str, confidence: float):

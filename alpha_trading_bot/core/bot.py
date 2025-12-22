@@ -21,7 +21,8 @@ class BotConfig(BaseConfig):
     max_position_size: float = 0.01
     leverage: int = 10
     test_mode: bool = True
-    cycle_interval: int = 15  # 分钟
+    cycle_interval: int = 15  # 分钟（从配置文件中读取，默认15分钟）
+    random_offset_range: int = 180  # 随机偏移范围（秒），默认±3分钟
 
 class TradingBot(BaseComponent):
     """交易机器人主类"""
@@ -219,7 +220,8 @@ class TradingBot(BaseComponent):
             self.enhanced_logger.logger.warning(f"启动监控任务失败: {e}，继续运行主程序")
 
         # 添加调试信息
-        self.enhanced_logger.logger.debug("进入交易循环，等待下一个15分钟整点...")
+        cycle_minutes = self.config.cycle_interval
+        self.enhanced_logger.logger.debug(f"进入交易循环，等待下一个{cycle_minutes}分钟周期（含随机偏移）...")
 
         try:
             cycle_count = 0
@@ -233,18 +235,38 @@ class TradingBot(BaseComponent):
                 # 执行一次交易循环
                 await self._trading_cycle(cycle_count)
 
-                # 计算等待到下一个15分钟整点的时间
+                # 计算等待到下一个周期的时间（使用配置中的周期 + 随机偏移）
                 now = datetime.now()
-                next_minute = ((now.minute // 15) + 1) * 15
+                cycle_minutes = self.config.cycle_interval  # 从配置读取周期（默认15分钟）
+
+                # 计算下一个周期的基础时间
+                current_minute = now.minute
+                next_minute = ((current_minute // cycle_minutes) + 1) * cycle_minutes
                 if next_minute >= 60:
-                    next_minute = 0
-                    next_hour = now.hour + 1
+                    next_minute = next_minute % 60
+                    next_hour = now.hour + (next_minute // 60)
                     if next_hour >= 24:
-                        next_hour = 0
+                        next_hour = next_hour % 24
                 else:
                     next_hour = now.hour
 
-                next_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
+                # 基础执行时间（周期整点）
+                base_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
+
+                # 添加随机时间偏移（使用配置的偏移范围）
+                offset_range = self.config.random_offset_range  # 默认±180秒（±3分钟）
+                random_offset = random.randint(-offset_range, offset_range)
+                next_execution_time = base_execution_time + timedelta(seconds=random_offset)
+
+                # 确保不会在过去时间执行（如果随机偏移为负数且绝对值很大）
+                if next_execution_time <= now:
+                    next_execution_time = base_execution_time
+                    self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为基准时间")
+
+                # 记录周期和随机偏移信息
+                offset_minutes = random_offset / 60
+                offset_range_minutes = offset_range / 60
+                self.enhanced_logger.logger.info(f"⏰ 下次执行周期: {cycle_minutes}分钟 + 随机偏移: {offset_minutes:+.1f} 分钟 (范围: ±{offset_range_minutes}分钟)")
 
                 # 计算等待时间
                 wait_seconds = (next_execution_time - now).total_seconds()
@@ -664,24 +686,28 @@ class TradingBot(BaseComponent):
             # 记录周期完成信息
             execution_time = time.time() - start_time
 
-            # 计算下次执行时间（下一个15分钟整点 + 随机偏移）
+            # 计算下次执行时间（下一个周期整点 + 随机偏移）
             from datetime import datetime, timedelta
             import random
             now = datetime.now()
-            next_minute = ((now.minute // 15) + 1) * 15
+
+            # 从配置读取周期（默认15分钟）
+            cycle_minutes = self.config.cycle_interval
+            next_minute = ((now.minute // cycle_minutes) + 1) * cycle_minutes
             if next_minute >= 60:
-                next_minute = 0
-                next_hour = now.hour + 1
+                next_minute = next_minute % 60
+                next_hour = now.hour + (next_minute // 60) + 1
                 if next_hour >= 24:
-                    next_hour = 0
+                    next_hour = next_hour % 24
             else:
                 next_hour = now.hour
 
-            # 基础执行时间（15分钟整点）
+            # 基础执行时间（周期整点）
             base_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
 
-            # 添加随机时间偏移（-3到+3分钟），让执行时间不那么规律
-            random_offset = random.randint(-180, 180)  # -180到180秒（-3到+3分钟）
+            # 添加随机时间偏移（使用配置的偏移范围）
+            offset_range = self.config.random_offset_range  # 默认±180秒（±3分钟）
+            random_offset = random.randint(-offset_range, offset_range)
             next_execution_time = base_execution_time + timedelta(seconds=random_offset)
 
             # 确保不会在过去时间执行（如果随机偏移为负数且绝对值很大）
@@ -691,7 +717,7 @@ class TradingBot(BaseComponent):
 
             # 记录随机偏移信息
             offset_minutes = random_offset / 60
-            self.enhanced_logger.logger.info(f"⏰ 下次执行时间偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±3分钟)")
+            self.enhanced_logger.logger.info(f"⏰ 下次执行时间偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{offset_range/60:.0f}分钟，周期: {cycle_minutes}分钟)")
 
             # 计算等待时间
             wait_seconds = (next_execution_time - now).total_seconds()
