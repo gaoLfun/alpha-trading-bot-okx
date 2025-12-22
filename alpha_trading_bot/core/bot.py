@@ -34,6 +34,7 @@ class TradingBot(BaseComponent):
         super().__init__(config or BotConfig(name="AlphaTradingBot"))
         self._running = False
         self._start_time = None
+        self._last_random_offset = 0  # 存储上一次使用的随机偏移
 
     @property
     def enhanced_logger(self):
@@ -257,7 +258,13 @@ class TradingBot(BaseComponent):
 
                 # 添加随机时间偏移（使用配置的偏移范围）
                 offset_range = self.config.random_offset_range  # 默认±180秒（±3分钟）
-                random_offset = random.randint(-offset_range, offset_range)
+                if self._last_random_offset != 0:
+                    # 使用上一次保存的随机偏移（确保一致性）
+                    random_offset = self._last_random_offset
+                    self._last_random_offset = 0  # 重置，下次将生成新的
+                else:
+                    # 首次执行或没有保存的偏移时生成新的
+                    random_offset = random.randint(-offset_range, offset_range)
                 next_execution_time = base_execution_time + timedelta(seconds=random_offset)
 
                 # 确保不会在过去时间执行（如果随机偏移为负数且绝对值很大）
@@ -729,6 +736,8 @@ class TradingBot(BaseComponent):
             if self.config.random_offset_enabled:
                 offset_minutes = random_offset / 60
                 self.enhanced_logger.logger.info(f"⏰ 周期完成 - 下次执行偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{self.config.random_offset_range/60:.0f}分钟，周期: {cycle_minutes}分钟)")
+                # 保存随机偏移供下次使用
+                self._last_random_offset = random_offset
             else:
                 self.enhanced_logger.logger.info(f"⏰ 下次执行时间: {next_execution_time.strftime('%Y-%m-%d %H:%M:%S')} (无随机偏移，周期: {cycle_minutes}分钟)")
 
