@@ -57,6 +57,10 @@ class TradeExecutor(BaseComponent):
         """初始化交易执行器"""
         logger.info("正在初始化交易执行器...")
         self._initialized = True
+        # 初始化本地缓存
+        if not hasattr(self, '_tp_order_cache'):
+            self._tp_order_cache = {}
+        logger.info("交易执行器初始化成功")
         return True
 
     async def cleanup(self) -> None:
@@ -453,6 +457,7 @@ class TradeExecutor(BaseComponent):
         self.risk_manager = risk_manager
         # 添加多级止盈订单创建冷却时间跟踪
         self._last_tp_creation_time = {}  # symbol -> timestamp
+        self._tp_order_cache = {}  # symbol -> {level: order_info} 本地缓存多级止盈订单
 
     async def _check_and_create_multi_level_tp_sl(self, symbol: str, current_position: PositionInfo, existing_orders: List) -> None:
         """检查并创建多级止盈订单 - 为缺失的级别补充创建"""
@@ -480,7 +485,42 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"多级止盈检查: 配置 {len(multi_level_tps)} 个级别，现有 {len(existing_orders)} 个算法订单")
 
-            # 优化策略：如果已有足够的止盈订单且价格匹配，跳过完整识别
+            # 初始化本地缓存
+            if symbol not in self._tp_order_cache:
+                self._tp_order_cache[symbol] = {}
+
+            # 优化策略1：使用本地缓存进行快速匹配
+            cache_hit = False
+            if self._tp_order_cache[symbol] and len(self._tp_order_cache[symbol]) == len(multi_level_tps):
+                logger.info(f"使用本地缓存进行快速匹配: {symbol}")
+                matched_orders = []
+
+                for level, cached_info in self._tp_order_cache[symbol].items():
+                    # 在现有订单中查找匹配的订单
+                    for order in existing_orders:
+                        if order.order_id == cached_info.get('order_id'):
+                            # 验证价格和级别是否匹配
+                            price_diff = abs(order.price - cached_info['price'])
+                            if price_diff <= 0.1:  # 使用0.1的容差
+                                matched_orders.append(order)
+                                logger.info(f"  缓存匹配成功: 级别{level}, 订单ID={order.order_id}, 价格=${order.price}")
+                                break
+
+                if len(matched_orders) >= len(multi_level_tps):
+                    logger.info(f"本地缓存匹配成功：已匹配 {len(matched_orders)}/{len(multi_level_tps)} 个止盈订单，跳过完整识别")
+                    cache_hit = True
+                    # 更新仓位中的订单信息
+                    if not current_position.tp_orders_info:
+                        current_position.tp_orders_info = {}
+                    for level, cached_info in self._tp_order_cache[symbol].items():
+                        current_position.tp_orders_info[cached_info['order_id']] = cached_info
+                    return
+
+            # 如果缓存未命中，继续完整识别流程
+            if cache_hit:
+                return
+
+            # 优化策略2：使用仓位缓存进行快速检查
             quick_check_passed = False
             if current_position.tp_orders_info and len(current_position.tp_orders_info) >= len(multi_level_tps):
                 # 快速检查：验证缓存的订单是否仍然存在且价格匹配
@@ -565,7 +605,7 @@ class TradeExecutor(BaseComponent):
                 expected_amount = round(expected_amount, 2)
 
                 # 使用更严格的价格容差匹配（0.01），更好识别不同级别的订单
-                price_tolerance = 0.02  # 增加容差到0.02，处理价格精度差异
+                price_tolerance = 0.1  # 容差增加到0.1，更好处理价格匹配
                 existing_amount = 0
                 matched_price = None
 
@@ -627,13 +667,18 @@ class TradeExecutor(BaseComponent):
                         self._last_tp_creation_time[symbol] = time.time()
 
                         # 存储订单信息
-                        current_position.tp_orders_info[tp_result.order_id] = {
+                        order_info = {
                             'level': tp_level['level'],
                             'amount': tp_amount,
                             'price': tp_level['price'],
                             'ratio': tp_level['ratio'],
-                            'profit_pct': tp_level['profit_pct']
+                            'profit_pct': tp_level['profit_pct'],
+                            'order_id': tp_result.order_id
                         }
+                        current_position.tp_orders_info[tp_result.order_id] = order_info
+
+                        # 更新本地缓存
+                        self._tp_order_cache[symbol][tp_level['level']] = order_info
                     else:
                         logger.error(f"✗ 第{tp_level['level']}级止盈订单创建失败: {tp_result.error_message}")
 
@@ -643,6 +688,14 @@ class TradeExecutor(BaseComponent):
             logger.info(f"多级止盈补充创建完成: 成功创建 {created_count} 个新订单")
             logger.info(f"已处理的止盈级别: {sorted(processed_levels)}")
             logger.info(f"更新后的仓位订单信息: {current_position.tp_orders_info}")
+
+            # 同步到本地缓存
+            if created_count > 0:
+                logger.info(f"同步多级止盈订单信息到本地缓存...")
+                for order_id, order_info in current_position.tp_orders_info.items():
+                    level = order_info['level']
+                    self._tp_order_cache[symbol][level] = order_info
+                logger.info(f"本地缓存已更新: {self._tp_order_cache[symbol]}")
 
             # 如果创建了新订单，等待一段时间避免立即重复检查
             if created_count > 0:
@@ -719,7 +772,7 @@ class TradeExecutor(BaseComponent):
                 expected_amount = round(expected_amount, 2)
 
                 # 使用更严格的价格容差匹配（0.01），更好识别不同级别的订单
-                price_tolerance = 0.02  # 增加容差到0.02，处理价格精度差异
+                price_tolerance = 0.1  # 容差增加到0.1，更好处理价格匹配
                 existing_amount = 0
                 matched_price = None
 
@@ -783,13 +836,18 @@ class TradeExecutor(BaseComponent):
                         self._last_tp_creation_time[symbol] = time.time()
 
                         # 存储订单信息
-                        current_position.tp_orders_info[tp_result.order_id] = {
+                        order_info = {
                             'level': tp_level['level'],
                             'amount': tp_amount,
                             'price': tp_level['price'],
                             'ratio': tp_level['ratio'],
-                            'profit_pct': tp_level['profit_pct']
+                            'profit_pct': tp_level['profit_pct'],
+                            'order_id': tp_result.order_id
                         }
+                        current_position.tp_orders_info[tp_result.order_id] = order_info
+
+                        # 更新本地缓存
+                        self._tp_order_cache[symbol][tp_level['level']] = order_info
                     else:
                         logger.error(f"✗ 第{tp_level['level']}级止盈订单创建失败: {tp_result.error_message}")
 
@@ -799,6 +857,14 @@ class TradeExecutor(BaseComponent):
             logger.info(f"多级止盈补充创建完成: 成功创建 {created_count} 个新订单")
             logger.info(f"已处理的止盈级别: {sorted(processed_levels)}")
             logger.info(f"更新后的仓位订单信息: {current_position.tp_orders_info}")
+
+            # 同步到本地缓存
+            if created_count > 0:
+                logger.info(f"同步多级止盈订单信息到本地缓存...")
+                for order_id, order_info in current_position.tp_orders_info.items():
+                    level = order_info['level']
+                    self._tp_order_cache[symbol][level] = order_info
+                logger.info(f"本地缓存已更新: {self._tp_order_cache[symbol]}")
 
             # 如果创建了新订单，等待一段时间避免立即重复检查
             if created_count > 0:
@@ -1380,14 +1446,21 @@ class TradeExecutor(BaseComponent):
                             # 存储止盈订单信息到仓位
                             current_position = self.position_manager.get_position(symbol)
                             if current_position:
-                                current_position.tp_orders_info[tp_result.order_id] = {
+                                order_info = {
                                     'level': tp_level['level'],
                                     'amount': tp_amount,
                                     'price': tp_level['price'],
                                     'ratio': tp_level['ratio'],
-                                    'profit_pct': tp_level['profit_pct']
+                                    'profit_pct': tp_level['profit_pct'],
+                                    'order_id': tp_result.order_id
                                 }
+                                current_position.tp_orders_info[tp_result.order_id] = order_info
                                 logger.info(f"已存储第{tp_level['level']}级止盈订单信息到仓位追踪")
+
+                                # 更新本地缓存
+                                if symbol not in self._tp_order_cache:
+                                    self._tp_order_cache[symbol] = {}
+                                self._tp_order_cache[symbol][tp_level['level']] = order_info
                         else:
                             logger.error(f"✗ 第{tp_level['level']}级止盈订单创建失败: {tp_result.error_message}")
                     except Exception as e:
