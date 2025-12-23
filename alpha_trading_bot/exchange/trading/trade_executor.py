@@ -459,9 +459,11 @@ class TradeExecutor(BaseComponent):
         try:
             # 检查冷却时间，避免频繁创建
             current_time = time.time()
+            if not hasattr(self, '_last_tp_creation_time'):
+                self._last_tp_creation_time = {}
             last_creation = self._last_tp_creation_time.get(symbol, 0)
-            if current_time - last_creation < 5:  # 5秒内不重复创建
-                logger.info(f"多级止盈创建冷却中，跳过检查: {symbol}")
+            if current_time - last_creation < 30:  # 30秒内不重复创建（增加冷却时间）
+                logger.info(f"多级止盈创建冷却中，跳过检查: {symbol} (冷却时间: {current_time - last_creation:.1f}s < 30s)")
                 return
 
             # 获取当前价格
@@ -543,6 +545,13 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"已存在的止盈订单（按价格汇总）: {existing_tp_orders}")
 
+            # 输出期望的多级止盈配置
+            logger.info(f"期望的多级止盈配置:")
+            for i, tp in enumerate(multi_level_tps):
+                expected_amount = current_position.amount * tp['ratio']
+                expected_amount = round(expected_amount, 2)
+                logger.info(f"  级别 {tp['level']}: 价格=${tp['price']:.4f}, 数量={expected_amount}, 比例={tp['ratio']}")
+
             # 检查每个止盈级别 - 添加级别跟踪避免重复
             created_count = 0
             processed_levels = set()  # 跟踪已处理的级别
@@ -556,7 +565,7 @@ class TradeExecutor(BaseComponent):
                 expected_amount = round(expected_amount, 2)
 
                 # 使用更严格的价格容差匹配（0.01），更好识别不同级别的订单
-                price_tolerance = 0.01  # 严格容差，更好区分不同级别
+                price_tolerance = 0.02  # 增加容差到0.02，处理价格精度差异
                 existing_amount = 0
                 matched_price = None
 
@@ -690,6 +699,13 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"已存在的止盈订单（按价格汇总）: {existing_tp_orders}")
 
+            # 输出期望的多级止盈配置
+            logger.info(f"期望的多级止盈配置:")
+            for i, tp in enumerate(multi_level_tps):
+                expected_amount = current_position.amount * tp['ratio']
+                expected_amount = round(expected_amount, 2)
+                logger.info(f"  级别 {tp['level']}: 价格=${tp['price']:.4f}, 数量={expected_amount}, 比例={tp['ratio']}")
+
             # 检查每个止盈级别 - 添加级别跟踪避免重复
             created_count = 0
             processed_levels = set()  # 跟踪已处理的级别
@@ -703,7 +719,7 @@ class TradeExecutor(BaseComponent):
                 expected_amount = round(expected_amount, 2)
 
                 # 使用更严格的价格容差匹配（0.01），更好识别不同级别的订单
-                price_tolerance = 0.01  # 严格容差，更好区分不同级别
+                price_tolerance = 0.02  # 增加容差到0.02，处理价格精度差异
                 existing_amount = 0
                 matched_price = None
 
@@ -1331,11 +1347,14 @@ class TradeExecutor(BaseComponent):
                 created_tp_count = 0
                 logger.info(f"开始创建 {len(multi_level_tps)} 个多级止盈订单...")
 
+                processed_levels = set()  # 初始化已处理级别集合
+
                 for tp_level in multi_level_tps:
-                # 检查是否已经处理过这个级别
-                if tp_level['level'] in processed_levels:
-                    logger.info(f"级别 {tp_level['level']} 已处理过，跳过")
-                    continue
+                    # 检查是否已经处理过这个级别
+                    if tp_level['level'] in processed_levels:
+                        logger.info(f"级别 {tp_level['level']} 已处理过，跳过")
+                        continue
+
                     tp_amount = order_result.filled_amount * tp_level['ratio']
                     # 确保数量精度符合交易所要求
                     tp_amount = round(tp_amount, 2)  # 保留2位小数，OKX精度为0.01
@@ -1356,6 +1375,7 @@ class TradeExecutor(BaseComponent):
                         if tp_result.success:
                             logger.info(f"✓ 第{tp_level['level']}级止盈订单创建成功: ID={tp_result.order_id}")
                             created_tp_count += 1
+                            processed_levels.add(tp_level['level'])  # 标记级别已处理
 
                             # 存储止盈订单信息到仓位
                             current_position = self.position_manager.get_position(symbol)
