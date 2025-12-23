@@ -445,8 +445,12 @@ class TradeExecutor(BaseComponent):
         logger.info(f"返回 {len(multi_level_prices)} 个止盈级别")
         return multi_level_prices
 
-    def __init__(self, exchange_client, order_manager, position_manager, risk_manager):
-        super().__init__(exchange_client, order_manager, position_manager, risk_manager)
+    def __init__(self, exchange_client, order_manager, position_manager, risk_manager, config=None):
+        super().__init__(config)
+        self.exchange_client = exchange_client
+        self.order_manager = order_manager
+        self.position_manager = position_manager
+        self.risk_manager = risk_manager
         # 添加多级止盈订单创建冷却时间跟踪
         self._last_tp_creation_time = {}  # symbol -> timestamp
 
@@ -1288,8 +1292,8 @@ class TradeExecutor(BaseComponent):
         return base_status
 
 # 创建交易执行器的工厂函数
-async def create_trade_executor(exchange_client, order_manager, position_manager, risk_manager) -> TradeExecutor:
+async def create_trade_executor(exchange_client, order_manager, position_manager, risk_manager, config=None) -> TradeExecutor:
     """创建交易执行器实例"""
-    executor = TradeExecutor(exchange_client, order_manager, position_manager, risk_manager)
+    executor = TradeExecutor(exchange_client, order_manager, position_manager, risk_manager, config)
     await executor.initialize()
     return executor

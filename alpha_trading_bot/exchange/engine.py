@@ -18,7 +18,7 @@ from .models import (
     OrderStatus, TradeSide, RiskAssessmentResult,
     MarketOrderRequest, LimitOrderRequest, TPSLRequest
 )
-from .trading import OrderManager, PositionManager, RiskManager, TradeExecutor
+from .trading import OrderManager, PositionManager, RiskManager, TradeExecutor, TradeExecutorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,8 @@ class TradingEngine(BaseComponent):
             self.exchange_client,
             self.order_manager,
             self.position_manager,
-            self.risk_manager
+            self.risk_manager,
+            TradeExecutorConfig(name="TradeExecutor")
         )
 
         # 状态管理
