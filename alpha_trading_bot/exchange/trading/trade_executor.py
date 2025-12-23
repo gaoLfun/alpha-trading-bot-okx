@@ -872,6 +872,7 @@ class TradeExecutor(BaseComponent):
                 # 多级止盈策略：固定价格，不随价格变动更新
                 logger.info("多级止盈策略：固定价格，不随价格变动更新")
                 tp_needs_update = False
+                sl_needs_update = False  # 多级策略下不更新止损
                 # 检查是否缺少任何级别的订单
                 if len(current_position.tp_orders_info) < len(is_multi_level):
                     logger.info(f"多级止盈缺失订单：已存在 {len(current_position.tp_orders_info)} 个，需要 {len(is_multi_level)} 个")
