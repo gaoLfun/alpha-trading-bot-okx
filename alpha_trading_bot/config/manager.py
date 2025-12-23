@@ -89,15 +89,15 @@ class ConfigManager:
         # 根据投资类型设置止盈止损百分比（预设配置）
         if investment_type == 'conservative':
             take_profit_percent = 0.06  # 6% 止盈
-            stop_loss_percent = 0.01    # 1% 止损
+            stop_loss_percent = 0.005   # 0.5% 止损
             description = "稳健型策略 - 低波动，追求稳健收益"
         elif investment_type == 'moderate':
             take_profit_percent = 0.08  # 8% 止盈
-            stop_loss_percent = 0.02    # 2% 止损
+            stop_loss_percent = 0.01    # 1% 止损
             description = "中等型策略 - 平衡风险与收益"
         elif investment_type == 'aggressive':
             take_profit_percent = 0.12  # 12% 止盈
-            stop_loss_percent = 0.03    # 3% 止损
+            stop_loss_percent = 0.02    # 2% 止损
             description = "激进型策略 - 高风险高收益"
 
         logger.info(f"策略配置: 投资类型={investment_type} - {description}")
