@@ -478,18 +478,54 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"多级止盈检查: 配置 {len(multi_level_tps)} 个级别，现有 {len(existing_orders)} 个算法订单")
 
-            # 由于订单信息不持久化，每次都从实际订单重新构建
-            current_position.tp_orders_info = {}
+            # 优化策略：如果已有足够的止盈订单且价格匹配，跳过完整识别
+            quick_check_passed = False
+            if current_position.tp_orders_info and len(current_position.tp_orders_info) >= len(multi_level_tps):
+                # 快速检查：验证缓存的订单是否仍然存在且价格匹配
+                matched_count = 0
+                for cached_order_id, cached_info in list(current_position.tp_orders_info.items()):
+                    for order in existing_orders:
+                        if order.order_id == cached_order_id:
+                            # 验证价格是否匹配（使用较大容差）
+                            price_diff = abs(order.price - cached_info['price'])
+                            if price_diff <= 0.5:  # 0.5 USDT 容差
+                                matched_count += 1
+                                break
+                            else:
+                                logger.info(f"  缓存订单价格变化: ID={cached_order_id}, 缓存价={cached_info['price']}, 现价={order.price}")
+                                break
 
-            # 统计订单类型
-            tp_orders = []
-            for order in existing_orders:
-                if ((current_position.side == TradeSide.LONG and order.side == TradeSide.SELL and order.price > current_price) or
-                    (current_position.side == TradeSide.SHORT and order.side == TradeSide.BUY and order.price < current_price)):
-                    tp_orders.append(order)
-            logger.info(f"其中识别为止盈订单的有 {len(tp_orders)} 个")
-            for i, order in enumerate(tp_orders):
-                logger.info(f"  止盈订单 {i+1}: ID={order.order_id}, 价格=${order.price:.4f}, 数量={getattr(order, 'amount', 0)}")
+                if matched_count >= len(multi_level_tps):
+                    logger.info(f"快速检查通过：已匹配 {matched_count}/{len(multi_level_tps)} 个止盈订单，跳过完整识别")
+                    quick_check_passed = True
+                    # 直接使用已识别的订单
+                    tp_orders = [o for o in existing_orders if o.order_id in current_position.tp_orders_info]
+                    logger.info(f"其中识别为止盈订单的有 {len(tp_orders)} 个（快速识别）")
+                else:
+                    logger.info(f"快速检查失败：仅匹配 {matched_count}/{len(multi_level_tps)} 个订单，重新识别")
+
+            if not quick_check_passed:
+                # 由于订单信息不持久化，重新构建
+                current_position.tp_orders_info = {}
+
+                # 统计订单类型 - 使用优化后的识别逻辑
+                tp_orders = []
+                sl_orders = []
+
+                for order in existing_orders:
+                    # 对于多头仓位：
+                    if current_position.side == TradeSide.LONG and order.side == TradeSide.SELL:
+                        # 计算与入场价的距离，避免误判
+                        price_diff_from_entry = (order.price - current_position.entry_price) / current_position.entry_price
+
+                        if order.price > current_price and price_diff_from_entry > 0.005:  # 价格高于入场价0.5%以上
+                            tp_orders.append(order)
+                        elif order.price < current_position.entry_price * 1.001:  # 价格接近或低于入场价
+                            sl_orders.append(order)
+
+                logger.info(f"统计结果 - 止盈订单: {len(tp_orders)} 个, 止损订单: {len(sl_orders)} 个")
+                for i, order in enumerate(tp_orders):
+                    logger.info(f"  止盈订单 {i+1}: ID={order.order_id}, 价格=${order.price:.4f}, 数量={getattr(order, 'amount', 0)}")
 
             # 获取已存在的止盈订单价格和总数量（按价格分组）
             existing_tp_orders = {}  # {price: total_amount}
@@ -514,8 +550,8 @@ class TradeExecutor(BaseComponent):
                 expected_amount = current_position.amount * tp_level['ratio']
                 expected_amount = round(expected_amount, 2)
 
-                # 使用价格容差匹配，允许0.01的价格差异
-                price_tolerance = 0.01
+                # 使用价格容差匹配，允许0.1的价格差异（更好处理价格精度波动）
+                price_tolerance = 0.1  # 增加容差到0.1，更好处理价格精度问题
                 existing_amount = 0
                 matched_price = None
 
@@ -654,8 +690,8 @@ class TradeExecutor(BaseComponent):
                 expected_amount = current_position.amount * tp_level['ratio']
                 expected_amount = round(expected_amount, 2)
 
-                # 使用价格容差匹配，允许0.01的价格差异
-                price_tolerance = 0.01
+                # 使用价格容差匹配，允许0.1的价格差异（更好处理价格精度波动）
+                price_tolerance = 0.1  # 增加容差到0.1，更好处理价格精度问题
                 existing_amount = 0
                 matched_price = None
 
@@ -1096,10 +1132,28 @@ class TradeExecutor(BaseComponent):
                 sl_needs_update = False  # 多级策略下不更新止损
 
                 # 只在首次或确实缺失订单时补充创建
-                if not current_position.tp_orders_info or len(current_position.tp_orders_info) < len(is_multi_level):
-                    logger.info(f"多级止盈缺失订单：已存在 {len(current_position.tp_orders_info) if current_position.tp_orders_info else 0} 个，需要 {len(is_multi_level)} 个")
+                # 优化：通过实际检测到的止盈订单数量来判断是否需要补充
+                actual_tp_orders = []
+                for order in existing_orders:
+                    # 精确识别止盈订单
+                    if current_position.side == TradeSide.LONG:
+                        if order.side == TradeSide.SELL and order.price > current_price:
+                            # 进一步验证是否为止盈订单（价格应显著高于入场价）
+                            price_diff_from_entry = (order.price - current_position.entry_price) / current_position.entry_price
+                            if price_diff_from_entry > 0.005:  # 高于入场价0.5%以上
+                                actual_tp_orders.append(order)
+                    else:  # SHORT
+                        if order.side == TradeSide.BUY and order.price < current_price:
+                            price_diff_from_entry = (current_position.entry_price - order.price) / current_position.entry_price
+                            if price_diff_from_entry > 0.005:
+                                actual_tp_orders.append(order)
+
+                if len(actual_tp_orders) < len(is_multi_level):
+                    logger.info(f"多级止盈缺失订单：已检测到 {len(actual_tp_orders)} 个止盈订单，需要 {len(is_multi_level)} 个")
                     # 调用补充创建逻辑
                     await self._check_and_create_multi_level_tp_sl(symbol, current_position, existing_orders)
+                else:
+                    logger.info(f"多级止盈订单完整：已检测到 {len(actual_tp_orders)} 个止盈订单，无需补充创建")
             else:
                 # 单级止盈策略：追踪止损逻辑
                 if current_tp:
