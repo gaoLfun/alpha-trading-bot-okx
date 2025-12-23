@@ -434,7 +434,7 @@ class TradeExecutor(BaseComponent):
                 'description': f"第{i+1}级止盈: {level*100:.0f}%"
             })
 
-        logger.info(f"多级止盈配置: {[(f'{p['profit_pct']:.0f}%', f'{p['ratio']*100:.0f}%') for p in multi_level_prices]}")
+        logger.info(f"多级止盈配置: {[(f\"{p['profit_pct']:.0f}%\", f\"{p['ratio']*100:.0f}%\") for p in multi_level_prices]}")
         logger.info(f"返回 {len(multi_level_prices)} 个止盈级别")
         return multi_level_prices
 
