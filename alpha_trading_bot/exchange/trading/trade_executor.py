@@ -478,6 +478,9 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"多级止盈检查: 配置 {len(multi_level_tps)} 个级别，现有 {len(existing_orders)} 个算法订单")
 
+            # 由于订单信息不持久化，每次都从实际订单重新构建
+            current_position.tp_orders_info = {}
+
             # 统计订单类型
             tp_orders = []
             for order in existing_orders:
@@ -485,6 +488,144 @@ class TradeExecutor(BaseComponent):
                     (current_position.side == TradeSide.SHORT and order.side == TradeSide.BUY and order.price < current_price)):
                     tp_orders.append(order)
             logger.info(f"其中识别为止盈订单的有 {len(tp_orders)} 个")
+            for i, order in enumerate(tp_orders):
+                logger.info(f"  止盈订单 {i+1}: ID={order.order_id}, 价格=${order.price:.4f}, 数量={getattr(order, 'amount', 0)}")
+
+            # 获取已存在的止盈订单价格和总数量（按价格分组）
+            existing_tp_orders = {}  # {price: total_amount}
+
+            # 只处理止盈订单（基于价格和方向判断）
+            for order in existing_orders:
+                # 检查订单方向是否与仓位方向相反（止盈订单应该与仓位方向相反）
+                if ((current_position.side == TradeSide.LONG and order.side == TradeSide.SELL and order.price > current_price) or
+                    (current_position.side == TradeSide.SHORT and order.side == TradeSide.BUY and order.price < current_price)):
+                    # 使用原始价格作为键，不进行四舍五入
+                    price_key = order.price
+                    if price_key not in existing_tp_orders:
+                        existing_tp_orders[price_key] = 0
+                    existing_tp_orders[price_key] += getattr(order, 'amount', 0) or 0
+
+            logger.info(f"已存在的止盈订单（按价格汇总）: {existing_tp_orders}")
+
+            # 检查每个止盈级别
+            created_count = 0
+            for tp_level in multi_level_tps:
+                expected_price = tp_level['price']
+                expected_amount = current_position.amount * tp_level['ratio']
+                expected_amount = round(expected_amount, 2)
+
+                # 使用价格容差匹配，允许0.01的价格差异
+                price_tolerance = 0.01
+                existing_amount = 0
+                matched_price = None
+
+                # 查找最接近的价格
+                logger.info(f"第{tp_level['level']}级止盈检查 - 期望价格: ${expected_price:.4f}, 容差: ±{price_tolerance}")
+                for existing_price, existing_amt in existing_tp_orders.items():
+                    price_diff = abs(existing_price - expected_price)
+                    logger.info(f"  对比现有价格: ${existing_price:.4f}, 差异: ${price_diff:.4f}")
+                    if price_diff <= price_tolerance:
+                        existing_amount = existing_amt
+                        matched_price = existing_price
+                        logger.info(f"  ✓ 找到匹配价格: ${matched_price:.4f}")
+                        break
+
+                # 检查是否已存在足够数量的止盈订单
+                if existing_amount >= expected_amount:
+                    logger.info(f"第{tp_level['level']}级止盈订单已存在且数量足够，价格: ${expected_price:.2f} (匹配价格: ${matched_price:.2f}), 数量: {existing_amount}/{expected_amount}")
+                    # 记录订单信息到仓位
+                    for order in tp_orders:
+                        if abs(order.price - matched_price) <= price_tolerance:
+                            current_position.tp_orders_info[order.order_id] = {
+                                'level': tp_level['level'],
+                                'amount': existing_amount,
+                                'price': matched_price,
+                                'ratio': tp_level['ratio'],
+                                'profit_pct': tp_level['profit_pct']
+                            }
+                            break
+                    continue
+                elif existing_amount > 0:
+                    logger.info(f"第{tp_level['level']}级止盈订单存在但数量不足，价格: ${expected_price:.2f} (匹配价格: ${matched_price:.2f}), 现有: {existing_amount}, 需要: {expected_amount}")
+                    # 计算需要补充的数量
+                    needed_amount = expected_amount - existing_amount
+                    tp_amount = needed_amount
+                else:
+                    logger.info(f"第{tp_level['level']}级止盈订单不存在，需要创建: {expected_amount} 张 @ ${expected_price:.2f}")
+                    tp_amount = expected_amount
+
+                # 确定订单方向
+                tp_side = TradeSide.SELL if current_position.side == TradeSide.LONG else TradeSide.BUY
+
+                logger.info(f"创建第{tp_level['level']}级止盈订单: {tp_amount} 张 @ ${expected_price:.2f} ({tp_level['profit_pct']:.0f}%)")
+
+                try:
+                    tp_result = await self.order_manager.create_take_profit_order(
+                        symbol=symbol,
+                        side=tp_side,
+                        amount=tp_amount,
+                        take_profit_price=expected_price,
+                        reduce_only=True
+                    )
+
+                    if tp_result.success:
+                        logger.info(f"✓ 第{tp_level['level']}级止盈订单创建成功: ID={tp_result.order_id}")
+                        created_count += 1
+
+                        # 更新冷却时间
+                        self._last_tp_creation_time[symbol] = time.time()
+
+                        # 存储订单信息
+                        current_position.tp_orders_info[tp_result.order_id] = {
+                            'level': tp_level['level'],
+                            'amount': tp_amount,
+                            'price': tp_level['price'],
+                            'ratio': tp_level['ratio'],
+                            'profit_pct': tp_level['profit_pct']
+                        }
+                    else:
+                        logger.error(f"✗ 第{tp_level['level']}级止盈订单创建失败: {tp_result.error_message}")
+
+                except Exception as e:
+                    logger.error(f"创建第{tp_level['level']}级止盈订单异常: {e}")
+
+            logger.info(f"多级止盈补充创建完成: 成功创建 {created_count} 个新订单")
+            logger.info(f"更新后的仓位订单信息: {current_position.tp_orders_info}")
+
+            # 如果创建了新订单，等待一段时间避免立即重复检查
+            if created_count > 0:
+                logger.info(f"等待2秒让新订单被系统确认...")
+                await asyncio.sleep(2)
+
+        except Exception as e:
+            logger.error(f"多级止盈检查失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+
+            # 获取当前价格
+            current_price = await self._get_current_price(symbol)
+
+            # 计算多级止盈价格
+            multi_level_tps = self._get_multi_level_take_profit_prices(
+                current_position.entry_price, current_price, current_position.side
+            )
+
+            if not multi_level_tps:
+                logger.warning("未获取到多级止盈配置，使用传统单级止盈")
+                return
+
+            logger.info(f"多级止盈检查: 配置 {len(multi_level_tps)} 个级别，现有 {len(existing_orders)} 个算法订单")
+            logger.info(f"仓位订单信息: {current_position.tp_orders_info}")
+
+            # 统计订单类型
+            tp_orders = []
+            for order in existing_orders:
+                if ((current_position.side == TradeSide.LONG and order.side == TradeSide.SELL and order.price > current_price) or
+                    (current_position.side == TradeSide.SHORT and order.side == TradeSide.BUY and order.price < current_price)):
+                    tp_orders.append(order)
+            logger.info(f"其中识别为止盈订单的有 {len(tp_orders)} 个")
+            for i, order in enumerate(tp_orders):
+                logger.info(f"  止盈订单 {i+1}: ID={order.order_id}, 价格=${order.price:.4f}, 数量={getattr(order, 'amount', 0)}")
 
             # 确保tp_orders_info已初始化
             if not current_position.tp_orders_info:
@@ -519,10 +660,14 @@ class TradeExecutor(BaseComponent):
                 matched_price = None
 
                 # 查找最接近的价格
+                logger.info(f"第{tp_level['level']}级止盈检查 - 期望价格: ${expected_price:.4f}, 容差: ±{price_tolerance}")
                 for existing_price, existing_amt in existing_tp_orders.items():
-                    if abs(existing_price - expected_price) <= price_tolerance:
+                    price_diff = abs(existing_price - expected_price)
+                    logger.info(f"  对比现有价格: ${existing_price:.4f}, 差异: ${price_diff:.4f}")
+                    if price_diff <= price_tolerance:
                         existing_amount = existing_amt
                         matched_price = existing_price
+                        logger.info(f"  ✓ 找到匹配价格: ${matched_price:.4f}")
                         break
 
                 # 检查是否已存在足够数量的止盈订单
@@ -587,6 +732,7 @@ class TradeExecutor(BaseComponent):
                     logger.error(f"创建第{tp_level['level']}级止盈订单异常: {e}")
 
             logger.info(f"多级止盈补充创建完成: 成功创建 {created_count} 个新订单")
+            logger.info(f"更新后的仓位订单信息: {current_position.tp_orders_info}")
 
             # 如果创建了新订单，等待一段时间避免立即重复检查
             if created_count > 0:
