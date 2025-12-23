@@ -435,7 +435,87 @@ class TradeExecutor(BaseComponent):
             })
 
         logger.info(f"多级止盈配置: {[(f'{p['profit_pct']:.0f}%', f'{p['ratio']*100:.0f}%') for p in multi_level_prices]}")
+        logger.info(f"返回 {len(multi_level_prices)} 个止盈级别")
         return multi_level_prices
+
+    async def _check_and_create_multi_level_tp_sl(self, symbol: str, current_position: PositionInfo, existing_orders: List) -> None:
+        """检查并创建多级止盈订单 - 为缺失的级别补充创建"""
+        try:
+            # 获取当前价格
+            current_price = await self._get_current_price(symbol)
+
+            # 计算多级止盈价格
+            multi_level_tps = self._get_multi_level_take_profit_prices(
+                current_position.entry_price, current_price, current_position.side
+            )
+
+            if not multi_level_tps:
+                logger.warning("未获取到多级止盈配置，使用传统单级止盈")
+                return
+
+            logger.info(f"多级止盈检查: 配置 {len(multi_level_tps)} 个级别，现有 {len(existing_orders)} 个订单")
+
+            # 获取已存在的止盈订单价格
+            existing_tp_prices = set()
+            for order in existing_orders:
+                if ((current_position.side == TradeSide.LONG and order.price > current_price) or
+                    (current_position.side == TradeSide.SHORT and order.price < current_price)):
+                    existing_tp_prices.add(round(order.price, 2))
+
+            logger.info(f"已存在的止盈订单价格: {existing_tp_prices}")
+
+            # 检查每个止盈级别
+            created_count = 0
+            for tp_level in multi_level_tps:
+                tp_price = round(tp_level['price'], 2)
+
+                # 检查是否已存在此价格的止盈订单
+                if tp_price in existing_tp_prices:
+                    logger.info(f"第{tp_level['level']}级止盈订单已存在，价格: ${tp_price:.2f}")
+                    continue
+
+                # 计算此级别的数量
+                tp_amount = current_position.amount * tp_level['ratio']
+                tp_amount = round(tp_amount, 2)
+
+                # 确定订单方向
+                tp_side = TradeSide.SELL if current_position.side == TradeSide.LONG else TradeSide.BUY
+
+                logger.info(f"创建第{tp_level['level']}级止盈订单: {tp_amount} 张 @ ${tp_price:.2f} ({tp_level['profit_pct']:.0f}%)")
+
+                try:
+                    tp_result = await self.order_manager.create_take_profit_order(
+                        symbol=symbol,
+                        side=tp_side,
+                        amount=tp_amount,
+                        take_profit_price=tp_level['price'],
+                        reduce_only=True
+                    )
+
+                    if tp_result.success:
+                        logger.info(f"✓ 第{tp_level['level']}级止盈订单创建成功: ID={tp_result.order_id}")
+                        created_count += 1
+
+                        # 存储订单信息
+                        current_position.tp_orders_info[tp_result.order_id] = {
+                            'level': tp_level['level'],
+                            'amount': tp_amount,
+                            'price': tp_level['price'],
+                            'ratio': tp_level['ratio'],
+                            'profit_pct': tp_level['profit_pct']
+                        }
+                    else:
+                        logger.error(f"✗ 第{tp_level['level']}级止盈订单创建失败: {tp_result.error_message}")
+
+                except Exception as e:
+                    logger.error(f"创建第{tp_level['level']}级止盈订单异常: {e}")
+
+            logger.info(f"多级止盈补充创建完成: 成功创建 {created_count} 个新订单")
+
+        except Exception as e:
+            logger.error(f"多级止盈检查失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
 
     async def monitor_filled_tp_orders(self, symbol: str) -> None:
         """监控已成交的止盈订单，处理多级止盈逻辑"""
@@ -492,7 +572,7 @@ class TradeExecutor(BaseComponent):
             logger.error(f"详细错误: {traceback.format_exc()}")
 
     async def check_and_create_missing_tp_sl(self, symbol: str, current_position: PositionInfo) -> None:
-        """检查并为没有止盈止损订单的持仓创建订单"""
+        """检查并为没有止盈止损订单的持仓创建订单 - 支持多级止盈"""
         try:
             if not current_position or current_position.amount <= 0:
                 return
@@ -501,6 +581,16 @@ class TradeExecutor(BaseComponent):
             existing_orders = await self.order_manager.fetch_algo_orders(symbol)
             logger.info(f"检查持仓 {symbol} 的止盈止损订单状态，找到 {len(existing_orders)} 个现有算法订单")
 
+            # 检查是否启用多级止盈策略
+            from ...config import load_config
+            config = load_config()
+
+            if config.strategies.profit_taking_strategy == 'multi_level':
+                # 多级止盈策略：检查需要补充创建的止盈订单
+                await self._check_and_create_multi_level_tp_sl(symbol, current_position, existing_orders)
+                return
+
+            # 传统单级止盈策略（原有逻辑）
             # 检查是否有止盈或止损订单
             has_tp = False
             has_sl = False
@@ -894,6 +984,10 @@ class TradeExecutor(BaseComponent):
             # 检查是否启用多级止盈策略
             multi_level_tps = self._get_multi_level_take_profit_prices(entry_price, current_price, side)
 
+            logger.info(f"多级止盈计算结果: {len(multi_level_tps)} 个级别")
+            for i, tp in enumerate(multi_level_tps):
+                logger.info(f"  级别 {i+1}: 价格=${tp['price']:.2f}, 比例={tp['ratio']}, 盈利={tp['profit_pct']:.1f}%")
+
             if multi_level_tps:
                 # 使用多级止盈策略
                 logger.info(f"创建新仓位的多级止盈止损订单: {symbol}")
@@ -901,6 +995,8 @@ class TradeExecutor(BaseComponent):
 
                 # 创建多级止盈订单
                 created_tp_count = 0
+                logger.info(f"开始创建 {len(multi_level_tps)} 个多级止盈订单...")
+
                 for tp_level in multi_level_tps:
                     tp_amount = order_result.filled_amount * tp_level['ratio']
                     # 确保数量精度符合交易所要求
@@ -909,30 +1005,37 @@ class TradeExecutor(BaseComponent):
                     logger.info(f"创建第{tp_level['level']}级止盈订单: {tp_amount} 张 @ ${tp_level['price']:.2f} ({tp_level['profit_pct']:.0f}%)")
 
                     tp_side = TradeSide.SELL if side == TradeSide.BUY else TradeSide.BUY
-                    tp_result = await self.order_manager.create_take_profit_order(
-                        symbol=symbol,
-                        side=tp_side,
-                        amount=tp_amount,
-                        take_profit_price=tp_level['price'],
-                        reduce_only=True
-                    )
 
-                    if tp_result.success:
-                        logger.info(f"✓ 第{tp_level['level']}级止盈订单创建成功: ID={tp_result.order_id}")
-                        created_tp_count += 1
+                    try:
+                        tp_result = await self.order_manager.create_take_profit_order(
+                            symbol=symbol,
+                            side=tp_side,
+                            amount=tp_amount,
+                            take_profit_price=tp_level['price'],
+                            reduce_only=True
+                        )
 
-                        # 存储止盈订单信息到仓位
-                        current_position = self.position_manager.get_position(symbol)
-                        if current_position:
-                            current_position.tp_orders_info[tp_result.order_id] = {
-                                'level': tp_level['level'],
-                                'amount': tp_amount,
-                                'price': tp_level['price'],
-                                'ratio': tp_level['ratio'],
-                                'profit_pct': tp_level['profit_pct']
-                            }
-                    else:
-                        logger.error(f"✗ 第{tp_level['level']}级止盈订单创建失败: {tp_result.error_message}")
+                        if tp_result.success:
+                            logger.info(f"✓ 第{tp_level['level']}级止盈订单创建成功: ID={tp_result.order_id}")
+                            created_tp_count += 1
+
+                            # 存储止盈订单信息到仓位
+                            current_position = self.position_manager.get_position(symbol)
+                            if current_position:
+                                current_position.tp_orders_info[tp_result.order_id] = {
+                                    'level': tp_level['level'],
+                                    'amount': tp_amount,
+                                    'price': tp_level['price'],
+                                    'ratio': tp_level['ratio'],
+                                    'profit_pct': tp_level['profit_pct']
+                                }
+                                logger.info(f"已存储第{tp_level['level']}级止盈订单信息到仓位追踪")
+                        else:
+                            logger.error(f"✗ 第{tp_level['level']}级止盈订单创建失败: {tp_result.error_message}")
+                    except Exception as e:
+                        logger.error(f"创建第{tp_level['level']}级止盈订单时发生异常: {e}")
+                        import traceback
+                        logger.error(f"详细错误: {traceback.format_exc()}")
 
                 logger.info(f"多级止盈订单创建完成: 成功创建 {created_tp_count}/{len(multi_level_tps)} 个订单")
 
