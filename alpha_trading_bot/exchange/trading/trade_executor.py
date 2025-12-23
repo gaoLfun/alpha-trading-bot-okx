@@ -693,10 +693,17 @@ class TradeExecutor(BaseComponent):
             # 获取止盈止损百分比配置
             take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
 
+            # 检查是否启用了多级止盈策略
+            is_multi_level = self._get_multi_level_take_profit_prices(current_position.entry_price, current_price, current_position.side)
+
             # 追踪止损策略：根据价格变动动态调整止损
             if current_position.side == TradeSide.LONG:
-                # 多头：止盈在上方，止损追踪上涨但不下穿入场价
-                new_take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
+                if is_multi_level:
+                    # 多级止盈：使用固定价格，不随当前价格变动
+                    new_take_profit = current_position.entry_price * (1 + take_profit_pct)  # 基于入场价（固定）
+                else:
+                    # 单级止盈：基于当前价格（动态）
+                    new_take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
 
                 # 追踪止损逻辑
                 if current_price > entry_price:
@@ -712,9 +719,13 @@ class TradeExecutor(BaseComponent):
                 tp_side = TradeSide.SELL
                 sl_side = TradeSide.SELL
 
-            else:
-                # 空头：止盈在下方，止损追踪下跌但不上穿入场价
-                new_take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
+            else:  # SHORT
+                if is_multi_level:
+                    # 多级止盈：使用固定价格，不随当前价格变动
+                    new_take_profit = current_position.entry_price * (1 - take_profit_pct)  # 基于入场价（固定）
+                else:
+                    # 单级止盈：基于当前价格（动态）
+                    new_take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
 
                 # 追踪止损逻辑
                 if current_price < entry_price:
@@ -732,7 +743,10 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"当前持仓: {symbol} {current_position.side.value} {current_position.amount} 张")
             logger.info(f"追踪止损策略 - 持仓均价: ${entry_price:.2f}, 当前价格: ${current_price:.2f}")
-            logger.info(f"- 止盈: ${new_take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%) - 动态更新")
+            if is_multi_level:
+                logger.info(f"- 多级止盈策略：固定价格，不随价格变动")
+            else:
+                logger.info(f"- 止盈: ${new_take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%) - 动态更新")
             logger.info(f"- 止损: ${new_stop_loss:.2f} (追踪止损 -{stop_loss_pct*100:.0f}%) - 动态调整")
 
             # 获取现有的算法订单
@@ -801,27 +815,34 @@ class TradeExecutor(BaseComponent):
             for i, order in enumerate(existing_orders):
                 logger.info(f"订单 {i+1}: ID={order.order_id}, 价格={order.price}, 方向={order.side.value}")
 
-            # 清理重复的止盈订单（保留最新的一个）
-            tp_orders = []
-            for order in existing_orders:
-                if current_position.side == TradeSide.LONG:
-                    if order.price > current_price:
-                        tp_orders.append(order)
-                else:  # SHORT
-                    if order.price < current_price:
-                        tp_orders.append(order)
+            # 检查是否启用了多级止盈策略
+            is_multi_level = self._get_multi_level_take_profit_prices(current_position.entry_price, current_price, current_position.side)
 
-            # 如果有多个止盈订单，保留最新的一个，取消其他的
-            if len(tp_orders) > 1:
-                logger.warning(f"检测到 {len(tp_orders)} 个止盈订单，将清理重复订单")
-                # 按订单ID排序（假设ID越大越新）
-                tp_orders.sort(key=lambda x: x.order_id, reverse=True)
-                # 保留第一个（最新的），取消其余的
-                for order in tp_orders[1:]:
-                    logger.info(f"取消重复的止盈订单: {order.order_id}")
-                    await self.order_manager.cancel_algo_order(order.order_id, symbol)
-                    # 从现有订单列表中移除
-                    existing_orders = [o for o in existing_orders if o.order_id != order.order_id]
+            # 如果是多级止盈策略，不清理订单
+            if is_multi_level:
+                logger.info("检测到多级止盈策略，跳过订单清理")
+            else:
+                # 传统单级止盈策略的清理逻辑
+                tp_orders = []
+                for order in existing_orders:
+                    if current_position.side == TradeSide.LONG:
+                        if order.price > current_price:
+                            tp_orders.append(order)
+                    else:  # SHORT
+                        if order.price < current_price:
+                            tp_orders.append(order)
+
+                # 如果有多个止盈订单，保留最新的一个，取消其他的
+                if len(tp_orders) > 1:
+                    logger.warning(f"检测到 {len(tp_orders)} 个单级止盈订单，将清理重复订单")
+                    # 按订单ID排序（假设ID越大越新）
+                    tp_orders.sort(key=lambda x: x.order_id, reverse=True)
+                    # 保留第一个（最新的），取消其余的
+                    for order in tp_orders[1:]:
+                        logger.info(f"取消重复的止盈订单: {order.order_id}")
+                        await self.order_manager.cancel_algo_order(order.order_id, symbol)
+                        # 从现有订单列表中移除
+                        existing_orders = [o for o in existing_orders if o.order_id != order.order_id]
 
             # 初始化变量，避免未定义错误
             current_tp = None
@@ -844,20 +865,30 @@ class TradeExecutor(BaseComponent):
                     elif trigger_price > current_price:
                         current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
 
-            # 检查和处理止盈与止损订单（追踪止损逻辑）
-            tp_needs_update = False
-            sl_needs_update = False
+            # 检查是否启用了多级止盈策略
+            is_multi_level = self._get_multi_level_take_profit_prices(current_position.entry_price, current_price, current_position.side)
 
-            if current_tp:
-                tp_price_diff = abs(current_tp['triggerPx'] - new_take_profit)
-                tp_needs_update = tp_price_diff > (current_price * 0.001)  # 价格差异超过0.1%才更新
-                if tp_needs_update:
-                    logger.info(f"止盈需要更新: 当前=${current_tp['triggerPx']:.2f} → 新=${new_take_profit:.2f}")
-                else:
-                    logger.info(f"止盈无需更新: 当前价格接近目标")
+            if is_multi_level:
+                # 多级止盈策略：固定价格，不随价格变动更新
+                logger.info("多级止盈策略：固定价格，不随价格变动更新")
+                tp_needs_update = False
+                # 检查是否缺少任何级别的订单
+                if len(current_position.tp_orders_info) < len(is_multi_level):
+                    logger.info(f"多级止盈缺失订单：已存在 {len(current_position.tp_orders_info)} 个，需要 {len(is_multi_level)} 个")
+                    # 调用补充创建逻辑
+                    await self._check_and_create_multi_level_tp_sl(symbol, current_position, existing_orders)
             else:
-                tp_needs_update = True  # 没有现有止盈订单，需要创建
-                logger.info("没有找到现有止盈订单，需要创建")
+                # 单级止盈策略：追踪止损逻辑
+                if current_tp:
+                    tp_price_diff = abs(current_tp['triggerPx'] - new_take_profit)
+                    tp_needs_update = tp_price_diff > (current_price * 0.001)  # 价格差异超过0.1%才更新
+                    if tp_needs_update:
+                        logger.info(f"止盈需要更新: 当前=${current_tp['triggerPx']:.2f} → 新=${new_take_profit:.2f}")
+                    else:
+                        logger.info(f"止盈无需更新: 当前价格接近目标")
+                else:
+                    tp_needs_update = True  # 没有现有止盈订单，需要创建
+                    logger.info("没有找到现有止盈订单，需要创建")
 
             # 检查现有止损订单（追踪止损逻辑）
             if current_sl:
