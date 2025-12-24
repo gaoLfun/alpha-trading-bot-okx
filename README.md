@@ -26,7 +26,11 @@
 
 ### 🛡️ 完善风控体系
 - **三级风险控制** - 当日亏损、连续亏损、仓位风险
-- **追踪止损** - 基于入场价的动态止损，价格反向波动时锁定利润
+- **智能止盈止损系统** - 支持普通模式和智能模式
+  - **普通模式**：固定百分比，设置后不变
+  - **智能模式**：动态调整，支持固定和多级两种子模式
+- **追踪止损** - 基于入场价的动态止损，价格反向波动时锁定利润（只升不降逻辑）
+- **多级止盈** - 支持2-3级止盈，不同投资类型差异化配置
 - **暴跌保护** - 多时间框架暴跌检测(1.5%-3.5%阈值)
 - **仓位精确控制** - 基于余额的动态仓位计算，保留5%缓冲
 - **紧急停止** - 一键清仓，取消所有订单
@@ -243,14 +247,26 @@ alpha_trading_bot/
 - `SMART_TP_SL_ENABLED`: 智能止盈止损（默认开启）
 - `LIMIT_ORDER_ENABLED`: 限价单功能（默认开启）
 - `PRICE_CRASH_PROTECTION_ENABLED`: 暴跌保护（默认开启）
-- `TAKE_PROFIT_PERCENT`: 止盈百分比（默认6%）
-- `STOP_LOSS_PERCENT`: 止损百分比（默认2%）
+- ~~`TAKE_PROFIT_PERCENT`: 止盈百分比（默认6%）~~ *(已废弃，使用新的止盈止损配置)*
+- ~~`STOP_LOSS_PERCENT`: 止损百分比（默认2%）~~ *(已废弃，使用新的止盈止损配置)*
 
 ### 🛡️ 风险控制配置
 - `MAX_DAILY_LOSS`: 最大日亏损（默认100 USDT）
 - `MAX_POSITION_RISK`: 最大仓位风险比例（默认5%）
-- `STOP_LOSS_ENABLED`: 止损开关（默认开启）
-- `TAKE_PROFIT_ENABLED`: 止盈开关（默认开启）
+- **止盈止损配置**:
+  - `TAKE_PROFIT_ENABLED`: 止盈总开关（默认开启）
+  - `STOP_LOSS_ENABLED`: 止损总开关（默认开启）
+  - `TAKE_PROFIT_MODE`: 止盈模式（normal普通/smart智能）
+  - `STOP_LOSS_MODE`: 止损模式（normal普通/smart智能）
+- **普通模式配置**（固定百分比，设置后不变）:
+  - `{INVESTMENT_TYPE}_NORMAL_TP_PERCENT`: 止盈百分比（如CONSERVATIVE_NORMAL_TP_PERCENT=6）
+  - `{INVESTMENT_TYPE}_NORMAL_SL_PERCENT`: 止损百分比（如CONSERVATIVE_NORMAL_SL_PERCENT=2）
+- **智能模式-固定模式配置**（动态调整）:
+  - `{INVESTMENT_TYPE}_SMART_FIXED_TP_PERCENT`: 智能固定止盈百分比
+  - `{INVESTMENT_TYPE}_SMART_FIXED_SL_PERCENT`: 智能固定止损百分比
+- **智能模式-多级模式配置**（多个止盈订单，动态调整）:
+  - `{INVESTMENT_TYPE}_SMART_MULTI_TP_LEVELS`: 多级止盈级别（如2,5,8）
+  - `{INVESTMENT_TYPE}_SMART_MULTI_TP_RATIOS`: 各级平仓比例（如0.6,0.3,0.1）
 - `TRAILING_STOP_ENABLED`: 追踪止损开关（默认开启）
 - `TRAILING_DISTANCE`: 追踪距离（默认1.5%）
 - `TRAILING_STOP_LOSS_ENABLED`: 追踪止损功能（默认开启）
@@ -277,6 +293,60 @@ alpha_trading_bot/
 - `TIMEOUT`: 网络超时时间（默认30秒）
 - `MAX_RETRIES`: 最大重试次数（默认3次）
 - `RETRY_DELAY`: 重试延迟（默认1秒）
+
+### 💰 止盈止损配置示例
+
+#### 基础配置
+```bash
+# 启用止盈止损
+TAKE_PROFIT_ENABLED=true
+STOP_LOSS_ENABLED=true
+
+# 选择模式（normal普通/smart智能）
+TAKE_PROFIT_MODE=smart
+STOP_LOSS_MODE=smart
+```
+
+#### 普通模式（固定值）
+```bash
+# 保守型配置（适合风险厌恶者）
+CONSERVATIVE_NORMAL_TP_PERCENT=6    # 6%止盈
+CONSERVATIVE_NORMAL_SL_PERCENT=2    # 2%止损
+
+# 中等型配置（平衡型投资者）
+MODERATE_NORMAL_TP_PERCENT=8        # 8%止盈
+MODERATE_NORMAL_SL_PERCENT=3        # 3%止损
+
+# 激进型配置（风险偏好者）
+AGGRESSIVE_NORMAL_TP_PERCENT=12     # 12%止盈
+AGGRESSIVE_NORMAL_SL_PERCENT=5      # 5%止损
+```
+
+#### 智能模式-固定模式（动态调整）
+```bash
+# 智能固定模式配置
+CONSERVATIVE_SMART_FIXED_TP_PERCENT=6   # 6%止盈，动态调整
+CONSERVATIVE_SMART_FIXED_SL_PERCENT=2   # 2%止损，追踪止损
+```
+
+#### 智能模式-多级模式（分批止盈）
+```bash
+# 多级止盈配置（保守型：快速锁定利润）
+CONSERVATIVE_SMART_MULTI_TP_LEVELS=2,5,8        # 2%、5%、8%三级别
+CONSERVATIVE_SMART_MULTI_TP_RATIOS=0.6,0.3,0.1  # 60%、30%、10%分批平仓
+
+# 多级止盈配置（激进型：追求更高收益）
+AGGRESSIVE_SMART_MULTI_TP_LEVELS=5,10,15        # 5%、10%、15%三级别
+AGGRESSIVE_SMART_MULTI_TP_RATIOS=0.2,0.3,0.5    # 20%、30%、50%分批平仓
+```
+
+#### 投资类型选择
+```bash
+# 设置投资类型（自动选择对应配置）
+INVESTMENT_TYPE=conservative    # 稳健型
+# INVESTMENT_TYPE=moderate      # 中等型
+# INVESTMENT_TYPE=aggressive    # 激进型
+```
 
 ### 🔧 系统配置
 - `MAX_HISTORY_LENGTH`: 最大历史记录长度（默认100条）
