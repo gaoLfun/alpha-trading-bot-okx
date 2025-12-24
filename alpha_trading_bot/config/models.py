@@ -59,13 +59,28 @@ class StrategyConfig:
     smart_tp_sl_enabled: bool = True
     limit_order_enabled: bool = True
     price_crash_protection_enabled: bool = True
-    # 止盈止损配置
-    take_profit_percent: float = 0.06  # 止盈百分比 (6%)
-    stop_loss_percent: float = 0.005   # 止损百分比 (0.5%)
-    # 多级止盈配置
-    profit_taking_strategy: str = 'single_level'  # 止盈策略：single_level 或 multi_level
-    profit_taking_levels: List[float] = None  # 多级止盈级别列表
-    profit_taking_ratios: List[float] = None  # 各级止盈的平仓比例
+
+    # 止盈止损总开关
+    take_profit_enabled: bool = True
+    stop_loss_enabled: bool = True
+
+    # 止盈止损模式
+    take_profit_mode: str = 'smart'  # normal:普通模式, smart:智能模式
+    stop_loss_mode: str = 'smart'    # normal:普通模式, smart:智能模式
+
+    # 普通模式配置（固定值）
+    normal_take_profit_percent: float = 0.06  # 普通模式止盈百分比
+    normal_stop_loss_percent: float = 0.005   # 普通模式止损百分比
+
+    # 智能模式-固定模式配置
+    smart_fixed_take_profit_percent: float = 0.06  # 智能固定模式止盈百分比
+    smart_fixed_stop_loss_percent: float = 0.005   # 智能固定模式止损百分比
+
+    # 智能模式-多级模式配置
+    smart_multi_take_profit_levels: List[float] = None  # 多级止盈级别列表
+    smart_multi_take_profit_ratios: List[float] = None  # 各级止盈的平仓比例
+
+    # 利润锁定配置
     enable_profit_lock: bool = True  # 是否启用利润锁定
     profit_lock_threshold: float = 0.05  # 利润锁定阈值
 

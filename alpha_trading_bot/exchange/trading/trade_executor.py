@@ -383,37 +383,68 @@ class TradeExecutor(BaseComponent):
             )
 
     def _get_tp_sl_percentages(self) -> tuple[float, float]:
-        """获取止盈止损百分比配置"""
-        # 从配置管理器获取策略配置
+        """获取止盈止损百分比配置 - 支持新模式"""
         from ...config import load_config
         config = load_config()
 
-        # 检查是否使用多级止盈策略
-        if config.strategies.profit_taking_strategy == 'multi_level' and config.strategies.profit_taking_levels:
-            # 多级止盈模式：返回第一级作为基础止盈
-            take_profit_pct = config.strategies.profit_taking_levels[0]  # 使用第一级作为基础
-            logger.info(f"使用多级止盈策略，第一级止盈: {take_profit_pct*100:.1f}%")
+        # 检查止盈止损是否启用
+        if not config.strategies.take_profit_enabled and not config.strategies.stop_loss_enabled:
+            return 0.0, 0.0
+
+        # 根据模式获取止盈百分比
+        if config.strategies.take_profit_enabled:
+            if config.strategies.take_profit_mode == 'normal':
+                # 普通模式：使用固定百分比
+                take_profit_pct = config.strategies.normal_take_profit_percent
+                logger.info(f"使用普通模式止盈: {take_profit_pct*100:.1f}%")
+            else:
+                # 智能模式：根据策略类型选择固定或多级
+                if config.strategies.smart_multi_take_profit_levels:
+                    # 多级模式：使用第一级作为基础
+                    take_profit_pct = config.strategies.smart_multi_take_profit_levels[0]
+                    logger.info(f"使用智能多级模式，第一级止盈: {take_profit_pct*100:.1f}%")
+                else:
+                    # 智能固定模式
+                    take_profit_pct = config.strategies.smart_fixed_take_profit_percent
+                    logger.info(f"使用智能固定模式止盈: {take_profit_pct*100:.1f}%")
         else:
-            # 传统单一止盈模式
-            take_profit_pct = config.strategies.take_profit_percent
+            take_profit_pct = 0.0
 
-        stop_loss_pct = config.strategies.stop_loss_percent
+        # 根据模式获取止损百分比
+        if config.strategies.stop_loss_enabled:
+            if config.strategies.stop_loss_mode == 'normal':
+                # 普通模式：使用固定百分比
+                stop_loss_pct = config.strategies.normal_stop_loss_percent
+                logger.info(f"使用普通模式止损: {stop_loss_pct*100:.1f}%")
+            else:
+                # 智能模式：使用固定止损百分比
+                stop_loss_pct = config.strategies.smart_fixed_stop_loss_percent
+                logger.info(f"使用智能模式止损: {stop_loss_pct*100:.1f}%")
+        else:
+            stop_loss_pct = 0.0
 
-        logger.info(f"使用止盈止损配置: 止盈={take_profit_pct*100:.1f}%, 止损={stop_loss_pct*100:.1f}%")
+        logger.info(f"最终止盈止损配置: 止盈={take_profit_pct*100:.1f}%, 止损={stop_loss_pct*100:.1f}%")
 
         return take_profit_pct, stop_loss_pct
 
     def _get_multi_level_take_profit_prices(self, entry_price: float, current_price: float, position_side: TradeSide) -> List[Dict[str, Any]]:
-        """获取多级止盈价格配置"""
+        """获取多级止盈价格配置 - 支持新模式"""
         from ...config import load_config
         config = load_config()
 
-        # 检查是否启用多级止盈
-        if config.strategies.profit_taking_strategy != 'multi_level' or not config.strategies.profit_taking_levels:
+        # 检查是否启用了止盈和智能模式
+        if not config.strategies.take_profit_enabled:
             return []
 
-        levels = config.strategies.profit_taking_levels
-        ratios = config.strategies.profit_taking_ratios
+        if config.strategies.take_profit_mode != 'smart':
+            return []
+
+        # 检查是否启用了多级模式
+        if not config.strategies.smart_multi_take_profit_levels or not config.strategies.smart_multi_take_profit_ratios:
+            return []
+
+        levels = config.strategies.smart_multi_take_profit_levels
+        ratios = config.strategies.smart_multi_take_profit_ratios
 
         if len(levels) != len(ratios):
             logger.warning(f"多级止盈级别数量({len(levels)})与比例数量({len(ratios)})不匹配")
