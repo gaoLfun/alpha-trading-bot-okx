@@ -84,6 +84,10 @@ class StrategyConfig:
     enable_profit_lock: bool = True  # 是否启用利润锁定
     profit_lock_threshold: float = 0.05  # 利润锁定阈值
 
+    # 止盈策略配置
+    profit_taking_strategy: str = 'single_level'  # 止盈策略：'single_level' 单级，'multi_level' 多级
+    profit_taking_levels: List[float] = None  # 多级止盈的级别列表
+
 @dataclass
 class RiskConfig:
     """风险控制配置"""

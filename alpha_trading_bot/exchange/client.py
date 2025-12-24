@@ -54,6 +54,11 @@ class ExchangeClient:
         self._initialized = False
         self._test_mode = False
 
+    @property
+    def is_test_mode(self) -> bool:
+        """检查是否处于测试模式"""
+        return self._test_mode
+
     @retry_on_network_error(max_retries=3, delay=1.0)
     async def initialize(self) -> bool:
         """初始化交易所客户端"""
@@ -76,6 +81,36 @@ class ExchangeClient:
                     leverage=config_manager.trading.leverage,
                     margin_mode=config_manager.trading.margin_mode
                 )
+
+                # 在测试模式下，仍然需要创建交易所实例以支持 markets 等属性访问
+                try:
+                    exchange_class = getattr(ccxt, self.config.exchange)
+                    # 创建测试模式的交易所实例（使用模拟配置）
+                    exchange_config = {
+                        'apiKey': self.config.api_key,
+                        'secret': self.config.secret,
+                        'password': self.config.password,
+                        'sandbox': self.config.sandbox,
+                        'options': {
+                            'defaultType': 'future',
+                            'marginMode': self.config.margin_mode,
+                            'leverage': self.config.leverage
+                        },
+                        'enableRateLimit': True,
+                        'timeout': 30000  # 30秒超时
+                    }
+                    self.exchange = exchange_class(exchange_config)
+                    # 加载市场数据（测试模式也加载，避免空 markets）
+                    await self.exchange.load_markets()
+                    logger.info("测试模式交易所实例创建成功")
+                except Exception as e:
+                    logger.warning(f"测试模式创建交易所实例失败: {e}，将使用空 markets 配置")
+                    # 如果创建失败，创建一个mock exchange对象
+                    class MockExchange:
+                        def __init__(self):
+                            self.markets = {}
+                    self.exchange = MockExchange()
+
                 self._initialized = True
                 logger.info("交易所客户端测试模式初始化成功")
                 return True
@@ -256,7 +291,9 @@ class ExchangeClient:
         """获取账户余额"""
         try:
             # 测试模式返回模拟数据
+            logger.debug(f"fetch_balance called, test_mode: {self._test_mode}")
             if self._test_mode:
+                logger.info("测试模式：返回模拟余额数据")
                 return BalanceData(
                     total=10000.0,
                     free=9000.0,
@@ -285,7 +322,44 @@ class ExchangeClient:
             amount = order_request['amount']
             price = order_request.get('price')
 
-            # 验证最小交易量
+            # 测试模式：跳过交易所验证，直接返回模拟订单
+            if self._test_mode:
+                import uuid
+                order_id = str(uuid.uuid4())
+                client_order_id = str(uuid.uuid4())
+
+                # 获取请求中的client_order_id（如果存在）
+                if 'client_order_id' in order_request:
+                    client_order_id = order_request['client_order_id']
+                elif 'clientOrderId' in order_request:
+                    client_order_id = order_request['clientOrderId']
+
+                # 模拟市价单立即成交
+                if type_ == 'market':
+                    filled_amount = amount
+                    status = OrderStatus.CLOSED
+                else:
+                    filled_amount = 0
+                    status = OrderStatus.OPEN
+
+                return OrderResult(
+                    success=True,
+                    order_id=order_id,
+                    client_order_id=client_order_id,
+                    symbol=symbol,
+                    side=TradeSide(side),
+                    amount=amount,
+                    price=price or 50000.0,
+                    average_price=price or 50000.0,
+                    filled_amount=filled_amount,
+                    remaining_amount=amount - filled_amount,
+                    status=status,
+                    type=OrderType(type_),
+                    created_at=datetime.now(),
+                    updated_at=datetime.now()
+                )
+
+            # 验证最小交易量（仅在非测试模式下）
             if symbol in self.exchange.markets:
                 market = self.exchange.markets[symbol]
                 min_amount = market.get('limits', {}).get('amount', {}).get('min', 0)
@@ -329,33 +403,6 @@ class ExchangeClient:
                 params['postOnly'] = order_request['post_only']
             if 'client_order_id' in order_request:
                 params['clientOrderId'] = order_request['client_order_id']
-
-            # 测试模式返回模拟订单
-            if self._test_mode:
-                import uuid
-                order_id = str(uuid.uuid4())
-                client_order_id = params.get('clientOrderId', str(uuid.uuid4()))
-
-                # 模拟市价单立即成交
-                if type_ == 'market':
-                    filled_amount = amount
-                    status = OrderStatus.CLOSED
-                else:
-                    filled_amount = 0
-                    status = OrderStatus.OPEN
-
-                return OrderResult(
-                    success=True,
-                    order_id=order_id,
-                    client_order_id=client_order_id,
-                    symbol=symbol,
-                    side=TradeSide(side),
-                    amount=amount,
-                    price=price or 50000.0,
-                    filled_amount=filled_amount,
-                    average_price=50000.0,
-                    status=status
-                )
 
             order = await self.exchange.create_order(
                 symbol=symbol,
@@ -430,6 +477,13 @@ class ExchangeClient:
     async def fetch_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         """获取仓位信息"""
         try:
+            # 测试模式返回模拟仓位数据
+            if self._test_mode:
+                logger.info(f"测试模式：返回模拟仓位信息: {symbol or 'all'}")
+                # 测试模式下返回空列表（表示无持仓）
+                # 在实际交易中，仓位信息会被创建并缓存
+                return []
+
             # 简化日志 - 只在有仓位时显示关键信息
             positions = await self.exchange.fetch_positions([symbol] if symbol else None)
 

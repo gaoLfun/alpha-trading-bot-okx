@@ -162,7 +162,10 @@ class TradeExecutor(BaseComponent):
                 if self.config.use_leverage:
                     # 获取合约大小（每张合约代表的标的资产数量）
                     contract_size = 0.01  # BTC/USDT:USDT 默认合约大小为0.01 BTC
-                    if symbol in self.exchange_client.exchange.markets:
+                    # 检查交易所实例是否存在且有 markets 属性
+                    if (self.exchange_client.exchange and
+                        hasattr(self.exchange_client.exchange, 'markets') and
+                        symbol in self.exchange_client.exchange.markets):
                         market = self.exchange_client.exchange.markets[symbol]
                         contract_size = market.get('contractSize', 0.01)
 
@@ -493,6 +496,14 @@ class TradeExecutor(BaseComponent):
     async def _check_and_create_multi_level_tp_sl(self, symbol: str, current_position: PositionInfo, existing_orders: List) -> None:
         """检查并创建多级止盈订单 - 为缺失的级别补充创建"""
         try:
+            # 检查是否启用了止盈
+            from ...config import load_config
+            config = load_config()
+            logger.info(f"调试 - 进入多级止盈函数: take_profit_enabled={config.strategies.take_profit_enabled}")
+            if not config.strategies.take_profit_enabled:
+                logger.info(f"止盈已禁用，跳过多级止盈订单检查: {symbol}")
+                return
+
             # 检查冷却时间，避免频繁创建
             current_time = time.time()
             if not hasattr(self, '_last_tp_creation_time'):
@@ -975,9 +986,16 @@ class TradeExecutor(BaseComponent):
             from ...config import load_config
             config = load_config()
 
-            if config.strategies.profit_taking_strategy == 'multi_level':
+            # 添加调试日志
+            logger.info(f"调试 - 止盈配置: take_profit_enabled={config.strategies.take_profit_enabled}, profit_taking_strategy={config.strategies.profit_taking_strategy}")
+
+            # 只有在启用了止盈的情况下才处理多级止盈
+            if config.strategies.take_profit_enabled and config.strategies.profit_taking_strategy == 'multi_level':
                 # 多级止盈策略：检查需要补充创建的止盈订单
                 await self._check_and_create_multi_level_tp_sl(symbol, current_position, existing_orders)
+                return
+            elif not config.strategies.take_profit_enabled:
+                logger.info(f"止盈已禁用，跳过止盈订单检查: {symbol}")
                 return
 
             # 传统单级止盈策略（原有逻辑）
@@ -1021,7 +1039,8 @@ class TradeExecutor(BaseComponent):
                 # 创建缺失的订单
                 created_count = 0
 
-                if not has_tp:
+                # 只有在启用了止盈且确实缺少止盈订单时才创建止盈订单
+                if not has_tp and config.strategies.take_profit_enabled:
                     logger.info(f"创建止盈订单: {symbol} {tp_side.value} {current_position.amount} @ ${new_take_profit:.2f}")
                     tp_result = await self.order_manager.create_take_profit_order(
                         symbol=symbol,
@@ -1033,11 +1052,13 @@ class TradeExecutor(BaseComponent):
                     if tp_result.success:
                         logger.info(f"✓ 止盈订单创建成功: ID={tp_result.order_id}")
                         created_count += 1
-                        processed_levels.add(tp_level['level'])  # 标记级别已处理
                     else:
                         logger.error(f"✗ 止盈订单创建失败: {tp_result.error_message}")
+                elif not has_tp and not config.strategies.take_profit_enabled:
+                    logger.info("止盈已禁用，跳过止盈订单创建")
 
-                if not has_sl:
+                # 只有在启用了止损且确实缺少止损订单时才创建止损订单
+                if not has_sl and config.strategies.stop_loss_enabled:
                     logger.info(f"创建止损订单: {symbol} {sl_side.value} {current_position.amount} @ ${new_stop_loss:.2f}")
                     sl_result = await self.order_manager.create_stop_order(
                         symbol=symbol,
@@ -1049,9 +1070,10 @@ class TradeExecutor(BaseComponent):
                     if sl_result.success:
                         logger.info(f"✓ 止损订单创建成功: ID={sl_result.order_id}")
                         created_count += 1
-                        processed_levels.add(tp_level['level'])  # 标记级别已处理
                     else:
                         logger.error(f"✗ 止损订单创建失败: {sl_result.error_message}")
+                elif not has_sl and not config.strategies.stop_loss_enabled:
+                    logger.info("止损已禁用，跳过止损订单创建")
 
                 logger.info(f"止盈止损订单创建完成: 创建了 {created_count} 个新订单")
 
@@ -1063,6 +1085,10 @@ class TradeExecutor(BaseComponent):
     async def _check_and_update_tp_sl(self, symbol: str, side: TradeSide, current_position: PositionInfo, min_price_change_pct: float = 0.01) -> None:
         """检查并更新止盈止损 - 实现追踪止损逻辑"""
         try:
+            # 加载配置
+            from ...config import load_config
+            config = load_config()
+
             # 确保属性存在
             if not hasattr(self, '_last_tp_update_time'):
                 self._last_tp_update_time: Dict[str, datetime] = {}
@@ -1083,12 +1109,24 @@ class TradeExecutor(BaseComponent):
             # 获取止盈止损百分比配置
             take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
 
-            # 检查是否启用了多级止盈策略
-            is_multi_level = self._get_multi_level_take_profit_prices(current_position.entry_price, current_price, current_position.side)
+            # 如果止盈被禁用，不处理止盈订单
+            from ...config import load_config
+            config = load_config()
+            is_multi_level = False  # 默认初始化
+            if not config.strategies.take_profit_enabled:
+                logger.info(f"止盈已禁用，跳过止盈订单处理: {symbol}")
+                # 只处理止损订单
+                new_take_profit = None
+            else:
+                # 检查是否启用了多级止盈策略
+                is_multi_level = self._get_multi_level_take_profit_prices(current_position.entry_price, current_price, current_position.side)
 
             # 追踪止损策略：根据价格变动动态调整止损
             if current_position.side == TradeSide.LONG:
-                if is_multi_level:
+                if not config.strategies.take_profit_enabled:
+                    # 止盈已禁用
+                    new_take_profit = None
+                elif is_multi_level:
                     # 多级止盈：使用固定价格，不随当前价格变动
                     new_take_profit = current_position.entry_price * (1 + take_profit_pct)  # 基于入场价（固定）
                 else:
@@ -1110,7 +1148,10 @@ class TradeExecutor(BaseComponent):
                 sl_side = TradeSide.SELL
 
             else:  # SHORT
-                if is_multi_level:
+                if not config.strategies.take_profit_enabled:
+                    # 止盈已禁用
+                    new_take_profit = None
+                elif is_multi_level:
                     # 多级止盈：使用固定价格，不随当前价格变动
                     new_take_profit = current_position.entry_price * (1 - take_profit_pct)  # 基于入场价（固定）
                 else:
@@ -1136,7 +1177,11 @@ class TradeExecutor(BaseComponent):
             if is_multi_level:
                 logger.info(f"- 多级止盈策略：固定价格，不随价格变动")
             else:
-                logger.info(f"- 止盈: ${new_take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%) - 动态更新")
+                # 只有在启用了止盈的情况下才显示止盈信息
+                if config.strategies.take_profit_enabled:
+                    logger.info(f"- 止盈: ${new_take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%) - 动态更新")
+                else:
+                    logger.info(f"- 止盈: 已禁用")
             logger.info(f"- 止损: ${new_stop_loss:.2f} (追踪止损 -{stop_loss_pct*100:.0f}%) - 动态调整")
 
             # 获取现有的算法订单
@@ -1151,12 +1196,20 @@ class TradeExecutor(BaseComponent):
                 # 通过触发价格与当前价格的关系来判断是止盈还是止损订单
                 if current_position.side == TradeSide.LONG:
                     if order.price > current_price:
-                        current_tp_price = order.price
+                        # 只有在启用了止盈的情况下才识别为止盈订单
+                        if config.strategies.take_profit_enabled:
+                            current_tp_price = order.price
+                        else:
+                            logger.info(f"止盈已禁用，忽略潜在的止盈订单 (价格: ${order.price})")
                     elif order.price < current_price:
                         current_sl_price = order.price
                 else:  # SHORT
                     if order.price < current_price:
-                        current_tp_price = order.price
+                        # 只有在启用了止盈的情况下才识别为止盈订单
+                        if config.strategies.take_profit_enabled:
+                            current_tp_price = order.price
+                        else:
+                            logger.info(f"止盈已禁用，忽略潜在的止盈订单 (价格: ${order.price})")
                     elif order.price > current_price:
                         current_sl_price = order.price
 
@@ -1205,8 +1258,11 @@ class TradeExecutor(BaseComponent):
             for i, order in enumerate(existing_orders):
                 logger.info(f"订单 {i+1}: ID={order.order_id}, 价格={order.price}, 方向={order.side.value}")
 
-            # 检查是否启用了多级止盈策略
-            is_multi_level = self._get_multi_level_take_profit_prices(current_position.entry_price, current_price, current_position.side)
+            # 只有在启用了止盈的情况下才检查多级止盈策略
+            if config.strategies.take_profit_enabled:
+                is_multi_level = self._get_multi_level_take_profit_prices(current_position.entry_price, current_price, current_position.side)
+            else:
+                is_multi_level = False
 
             # 如果是多级止盈策略，不清理订单
             if is_multi_level:
@@ -1217,10 +1273,18 @@ class TradeExecutor(BaseComponent):
                 for order in existing_orders:
                     if current_position.side == TradeSide.LONG:
                         if order.price > current_price:
-                            tp_orders.append(order)
+                            # 只有在启用了止盈的情况下才识别为止盈订单
+                            if config.strategies.take_profit_enabled:
+                                tp_orders.append(order)
+                            else:
+                                logger.info(f"止盈已禁用，忽略潜在的止盈订单 (价格: ${order.price})")
                     else:  # SHORT
                         if order.price < current_price:
-                            tp_orders.append(order)
+                            # 只有在启用了止盈的情况下才识别为止盈订单
+                            if config.strategies.take_profit_enabled:
+                                tp_orders.append(order)
+                            else:
+                                logger.info(f"止盈已禁用，忽略潜在的止盈订单 (价格: ${order.price})")
 
                 # 如果有多个止盈订单，保留最新的一个，取消其他的
                 if len(tp_orders) > 1:
@@ -1237,6 +1301,8 @@ class TradeExecutor(BaseComponent):
             # 初始化变量，避免未定义错误
             current_tp = None
             current_sl = None
+            tp_needs_update = False
+            sl_needs_update = False
 
             for order in existing_orders:
                 # OrderResult 对象的处理方式
@@ -1246,17 +1312,28 @@ class TradeExecutor(BaseComponent):
                 # 通过触发价格与当前价格的关系来判断是止盈还是止损订单
                 if current_position.side == TradeSide.LONG:
                     if trigger_price > current_price:
-                        current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
+                        # 只有在启用了止盈的情况下才识别为止盈订单
+                        if config.strategies.take_profit_enabled:
+                            current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
+                        else:
+                            logger.info(f"止盈已禁用，忽略潜在的止盈订单 (触发价: ${trigger_price})")
                     elif trigger_price < current_price:
                         current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
                 else:  # SHORT
                     if trigger_price < current_price:
-                        current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
+                        # 只有在启用了止盈的情况下才识别为止盈订单
+                        if config.strategies.take_profit_enabled:
+                            current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
+                        else:
+                            logger.info(f"止盈已禁用，忽略潜在的止盈订单 (触发价: ${trigger_price})")
                     elif trigger_price > current_price:
                         current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
 
-            # 检查是否启用了多级止盈策略
-            is_multi_level = self._get_multi_level_take_profit_prices(current_position.entry_price, current_price, current_position.side)
+            # 只有在启用了止盈的情况下才检查多级止盈策略
+            if config.strategies.take_profit_enabled:
+                is_multi_level = self._get_multi_level_take_profit_prices(current_position.entry_price, current_price, current_position.side)
+            else:
+                is_multi_level = False
 
             if is_multi_level:
                 # 多级止盈策略：固定价格，不随价格变动更新
@@ -1267,24 +1344,33 @@ class TradeExecutor(BaseComponent):
                 # 只在首次或确实缺失订单时补充创建
                 # 优化：通过实际检测到的止盈订单数量来判断是否需要补充
                 actual_tp_orders = []
-                for order in existing_orders:
-                    # 精确识别止盈订单
-                    if current_position.side == TradeSide.LONG:
-                        if order.side == TradeSide.SELL and order.price > current_price:
-                            # 进一步验证是否为止盈订单（价格应显著高于入场价）
-                            price_diff_from_entry = (order.price - current_position.entry_price) / current_position.entry_price
-                            if price_diff_from_entry > 0.005:  # 高于入场价0.5%以上
-                                actual_tp_orders.append(order)
-                    else:  # SHORT
-                        if order.side == TradeSide.BUY and order.price < current_price:
-                            price_diff_from_entry = (current_position.entry_price - order.price) / current_position.entry_price
-                            if price_diff_from_entry > 0.005:
-                                actual_tp_orders.append(order)
+
+                # 只有在启用了止盈的情况下才识别止盈订单
+                logger.info(f"调试 - 多级止盈识别前: take_profit_enabled={config.strategies.take_profit_enabled}")
+                if config.strategies.take_profit_enabled:
+                    for order in existing_orders:
+                        # 精确识别止盈订单
+                        if current_position.side == TradeSide.LONG:
+                            if order.side == TradeSide.SELL and order.price > current_price:
+                                # 进一步验证是否为止盈订单（价格应显著高于入场价）
+                                price_diff_from_entry = (order.price - current_position.entry_price) / current_position.entry_price
+                                if price_diff_from_entry > 0.005:  # 高于入场价0.5%以上
+                                    actual_tp_orders.append(order)
+                        else:  # SHORT
+                            if order.side == TradeSide.BUY and order.price < current_price:
+                                price_diff_from_entry = (current_position.entry_price - order.price) / current_position.entry_price
+                                if price_diff_from_entry > 0.005:
+                                    actual_tp_orders.append(order)
+                else:
+                    logger.info(f"止盈已禁用，跳过多级止盈订单识别")
 
                 if len(actual_tp_orders) < len(is_multi_level):
                     logger.info(f"多级止盈缺失订单：已检测到 {len(actual_tp_orders)} 个止盈订单，需要 {len(is_multi_level)} 个")
-                    # 调用补充创建逻辑
-                    await self._check_and_create_multi_level_tp_sl(symbol, current_position, existing_orders)
+                    # 只有在启用了止盈的情况下才调用补充创建逻辑
+                    if config.strategies.take_profit_enabled:
+                        await self._check_and_create_multi_level_tp_sl(symbol, current_position, existing_orders)
+                    else:
+                        logger.info(f"止盈已禁用，跳过多级止盈订单补充创建: {symbol}")
                 else:
                     logger.info(f"多级止盈订单完整：已检测到 {len(actual_tp_orders)} 个止盈订单，无需补充创建")
             else:
@@ -1297,8 +1383,12 @@ class TradeExecutor(BaseComponent):
                     else:
                         logger.info(f"止盈无需更新: 当前价格接近目标")
                 else:
-                    tp_needs_update = True  # 没有现有止盈订单，需要创建
-                    logger.info("没有找到现有止盈订单，需要创建")
+                    # 只有在启用了止盈的情况下才需要创建
+                    if config.strategies.take_profit_enabled:
+                        tp_needs_update = True  # 没有现有止盈订单，需要创建
+                        logger.info("没有找到现有止盈订单，需要创建")
+                    else:
+                        logger.info("止盈已禁用，无需创建止盈订单")
 
             # 检查现有止损订单（追踪止损逻辑）
             if current_sl:
@@ -1356,8 +1446,8 @@ class TradeExecutor(BaseComponent):
             created_count = 0
             updated_count = 0
 
-            # 更新止盈订单
-            if tp_needs_update:
+            # 更新止盈订单（仅在启用了止盈的情况下）
+            if tp_needs_update and config.strategies.take_profit_enabled:
                 if current_tp:
                     # 取消现有止盈订单
                     logger.info(f"取消现有止盈订单: {current_tp['algoId']}")
@@ -1376,8 +1466,11 @@ class TradeExecutor(BaseComponent):
                 if tp_result.success:
                     logger.info(f"✓ 止盈订单创建成功: ID={tp_result.order_id}")
                     created_count += 1
+                    updated_count += 1
                 else:
                     logger.error(f"✗ 止盈订单创建失败: {tp_result.error_message}")
+            elif tp_needs_update and not config.strategies.take_profit_enabled:
+                logger.info("止盈已禁用，跳过止盈订单更新")
 
             # 更新止损订单（追踪止损逻辑）
             if sl_needs_update:
@@ -1521,22 +1614,28 @@ class TradeExecutor(BaseComponent):
                 # 实际创建止盈止损订单
                 logger.info(f"创建新仓位的止盈止损订单: {symbol}")
                 logger.info(f"混合策略 - 入场价: ${entry_price:.2f}, 当前价: ${current_price:.2f}")
-                logger.info(f"- 止盈: ${take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%)")
-                logger.info(f"- 止损: ${stop_loss:.2f} (基于入场价 -{stop_loss_pct*100:.0f}%)")
 
-                # 创建止盈订单
-                tp_result = await self.order_manager.create_take_profit_order(
-                    symbol=symbol,
-                    side=tp_side,
-                    amount=order_result.filled_amount,  # 对新仓位设置止盈
-                    take_profit_price=take_profit,
-                    reduce_only=True
-                )
+                # 只有在启用了止盈的情况下才创建止盈订单
+                if config.strategies.take_profit_enabled:
+                    logger.info(f"- 止盈: ${take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%)")
 
-                if tp_result.success:
-                    logger.info(f"新仓位止盈订单创建成功: {tp_result.order_id}")
+                    # 创建止盈订单
+                    tp_result = await self.order_manager.create_take_profit_order(
+                        symbol=symbol,
+                        side=tp_side,
+                        amount=order_result.filled_amount,  # 对新仓位设置止盈
+                        take_profit_price=take_profit,
+                        reduce_only=True
+                    )
+
+                    if tp_result.success:
+                        logger.info(f"新仓位止盈订单创建成功: {tp_result.order_id}")
+                    else:
+                        logger.error(f"新仓位止盈订单创建失败: {tp_result.error_message}")
                 else:
-                    logger.error(f"新仓位止盈订单创建失败: {tp_result.error_message}")
+                    logger.info("止盈已禁用，跳过止盈订单创建")
+
+                logger.info(f"- 止损: ${stop_loss:.2f} (基于入场价 -{stop_loss_pct*100:.0f}%)")
 
             # 创建止损订单（无论使用哪种止盈策略，止损都是单一的）
             if side == TradeSide.BUY:

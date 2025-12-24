@@ -103,8 +103,11 @@ class ConfigManager:
         logger.info(f"策略配置: 投资类型={investment_type} - {description}")
 
         # 加载止盈止损配置
-        take_profit_enabled = os.getenv('TAKE_PROFIT_ENABLED', 'true').lower() == 'true'
-        stop_loss_enabled = os.getenv('STOP_LOSS_ENABLED', 'true').lower() == 'true'
+        take_profit_env = os.getenv('TAKE_PROFIT_ENABLED', 'true')
+        stop_loss_env = os.getenv('STOP_LOSS_ENABLED', 'true')
+        logger.info(f"调试 - 环境变量原始值: TAKE_PROFIT_ENABLED={take_profit_env}, STOP_LOSS_ENABLED={stop_loss_env}")
+        take_profit_enabled = take_profit_env.lower() == 'true'
+        stop_loss_enabled = stop_loss_env.lower() == 'true'
         take_profit_mode = os.getenv('TAKE_PROFIT_MODE', 'smart').lower()
         stop_loss_mode = os.getenv('STOP_LOSS_MODE', 'smart').lower()
 
@@ -202,7 +205,10 @@ class ConfigManager:
             smart_multi_take_profit_ratios=smart_multi_take_profit_ratios,
             # 利润锁定配置
             enable_profit_lock=enable_profit_lock,
-            profit_lock_threshold=profit_lock_threshold
+            profit_lock_threshold=profit_lock_threshold,
+            # 止盈策略配置
+            profit_taking_strategy='multi_level' if smart_multi_take_profit_levels else 'single_level',
+            profit_taking_levels=smart_multi_take_profit_levels
         )
 
     def _load_risk_config(self) -> RiskConfig:

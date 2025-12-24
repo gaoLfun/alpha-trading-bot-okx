@@ -311,6 +311,12 @@ class OrderManager(BaseComponent):
     async def fetch_algo_orders(self, symbol: str) -> List[OrderResult]:
         """获取算法订单（止盈止损订单）"""
         try:
+            # 检查是否处于测试模式
+            if self.exchange_client.is_test_mode:
+                logger.info("测试模式：返回模拟算法订单数据")
+                # 返回空列表，因为测试模式下的模拟订单数据不会持久化
+                return []
+
             # 使用转换函数获取正确的instId
             inst_id = self._convert_symbol_to_inst_id(symbol)
             logger.info(f"获取算法订单 - symbol: {symbol}, instId: {inst_id}")
@@ -353,6 +359,14 @@ class OrderManager(BaseComponent):
     async def cancel_algo_order(self, algo_order_id: str, symbol: str) -> bool:
         """取消算法订单"""
         try:
+            # 检查是否处于测试模式
+            if self.exchange_client.is_test_mode:
+                logger.info("测试模式：模拟算法订单取消成功")
+                # 在测试模式下，从本地缓存中移除订单
+                if algo_order_id in self.active_orders:
+                    self.active_orders[algo_order_id].status = OrderStatus.CANCELED
+                return True
+
             # 使用转换函数获取正确的instId
             inst_id = self._convert_symbol_to_inst_id(symbol)
             logger.info(f"取消算法订单 - algoId: {algo_order_id}, instId: {inst_id}")

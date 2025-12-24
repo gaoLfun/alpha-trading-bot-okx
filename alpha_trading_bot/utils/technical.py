@@ -387,6 +387,126 @@ class TechnicalIndicators:
             return [close[0]] * len(close)
 
     @staticmethod
+    def calculate_trend_analysis(close: List[float], periods: List[int] = [10, 20, 50]) -> Dict[str, Any]:
+        """
+        计算趋势分析
+
+        Args:
+            close: 收盘价列表
+            periods: 趋势分析周期列表，默认[10, 20, 50]
+
+        Returns:
+            趋势分析结果字典
+        """
+        try:
+            if len(close) < max(periods):
+                return {
+                    'overall_trend': 'neutral',
+                    'trend_strength': 0.0,
+                    'trend_consensus': 0.0,
+                    'trend_details': {}
+                }
+
+            trend_scores = {}
+            current_price = close[-1]
+
+            # 计算每个周期的趋势
+            for period in periods:
+                if len(close) >= period:
+                    # 计算移动平均线
+                    ma = TechnicalIndicators.calculate_sma(close, period)
+                    current_ma = ma[-1]
+
+                    # 计算斜率（价格变化率）
+                    start_price = close[-period]
+                    price_change = (current_price - start_price) / start_price
+
+                    # 计算相对于均线的位置
+                    ma_distance = (current_price - current_ma) / current_ma
+
+                    # 综合趋势评分 (-1 到 1)
+                    trend_score = 0
+
+                    # 基于价格变化的趋势
+                    if price_change > 0.05:  # 上涨超过5%
+                        trend_score += 0.4
+                    elif price_change > 0.02:  # 上涨2-5%
+                        trend_score += 0.2
+                    elif price_change < -0.05:  # 下跌超过5%
+                        trend_score -= 0.4
+                    elif price_change < -0.02:  # 下跌2-5%
+                        trend_score -= 0.2
+
+                    # 基于均线位置的趋势
+                    if ma_distance > 0.02:  # 价格在均线上方2%
+                        trend_score += 0.3
+                    elif ma_distance > 0:  # 价格在均线上方
+                        trend_score += 0.1
+                    elif ma_distance < -0.02:  # 价格在均线下方2%
+                        trend_score -= 0.3
+                    elif ma_distance < 0:  # 价格在均线下方
+                        trend_score -= 0.1
+
+                    # 基于更高时间框架的趋势一致性
+                    if len(close) >= period * 2:
+                        longer_ma = TechnicalIndicators.calculate_sma(close, period * 2)
+                        if current_ma > longer_ma[-1] and trend_score > 0:
+                            trend_score += 0.2  # 强化上升趋势
+                        elif current_ma < longer_ma[-1] and trend_score < 0:
+                            trend_score -= 0.2  # 强化下降趋势
+
+                    trend_scores[f'ma_{period}'] = max(-1, min(1, trend_score))  # 限制在-1到1之间
+
+            # 计算总体趋势共识
+            if trend_scores:
+                trend_values = list(trend_scores.values())
+                trend_consensus = np.mean(trend_values)
+
+                # 确定总体趋势方向
+                if trend_consensus > 0.3:
+                    overall_trend = 'strong_uptrend'
+                elif trend_consensus > 0.1:
+                    overall_trend = 'uptrend'
+                elif trend_consensus < -0.3:
+                    overall_trend = 'strong_downtrend'
+                elif trend_consensus < -0.1:
+                    overall_trend = 'downtrend'
+                else:
+                    overall_trend = 'neutral'
+
+                # 计算趋势强度（基于共识度和时间框架一致性）
+                trend_strength = min(abs(trend_consensus) * 1.5, 1.0)  # 放大到0-1范围
+
+                # 如果时间框架之间分歧很大，降低强度
+                if len(trend_values) > 1:
+                    max_diff = max(trend_values) - min(trend_values)
+                    if max_diff > 1.0:  # 分歧很大
+                        trend_strength *= 0.5
+
+                return {
+                    'overall_trend': overall_trend,
+                    'trend_strength': trend_strength,
+                    'trend_consensus': trend_consensus,
+                    'trend_details': trend_scores
+                }
+            else:
+                return {
+                    'overall_trend': 'neutral',
+                    'trend_strength': 0.0,
+                    'trend_consensus': 0.0,
+                    'trend_details': {}
+                }
+
+        except Exception as e:
+            logger.error(f"计算趋势分析失败: {e}")
+            return {
+                'overall_trend': 'neutral',
+                'trend_strength': 0.0,
+                'trend_consensus': 0.0,
+                'trend_details': {}
+            }
+
+    @staticmethod
     def calculate_all_indicators(market_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         计算所有技术指标
@@ -458,6 +578,11 @@ class TechnicalIndicators:
                 returns = [(close[i] - close[i-1]) / close[i-1] for i in range(1, len(close))]
                 volatility_30d = np.std(returns[-30:]) * np.sqrt(365) if len(returns) >= 30 else np.std(returns) * np.sqrt(365)
                 result['volatility_30d'] = volatility_30d
+
+            # 趋势分析
+            if len(close) >= 50:
+                trend_data = TechnicalIndicators.calculate_trend_analysis(close, [10, 20, 50])
+                result['trend_analysis'] = trend_data
 
             return result
 

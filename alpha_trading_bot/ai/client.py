@@ -162,10 +162,42 @@ class AIClient:
         ma_status = technical_data.get('ma_status', 'N/A')
         atr_pct = float(technical_data.get('atr_pct', 0))
 
-        # 获取趋势分析
-        trend_analysis = market_data.get('trend_analysis', {})
-        overall_trend = trend_analysis.get('overall', '震荡')
-        trend_strength = trend_analysis.get('strength', 'normal')
+        # 获取趋势分析（从technical_data中获取新的趋势分析）
+        trend_analysis = technical_data.get('trend_analysis', {})
+        if trend_analysis:
+            overall_trend = trend_analysis.get('overall_trend', 'neutral')
+            trend_strength = trend_analysis.get('trend_strength', 0.0)
+            trend_consensus = trend_analysis.get('trend_consensus', 0.0)
+            trend_details = trend_analysis.get('trend_details', {})
+
+            # 将趋势强度转换为描述性文字
+            if trend_strength > 0.7:
+                strength_desc = "极强"
+            elif trend_strength > 0.5:
+                strength_desc = "强"
+            elif trend_strength > 0.3:
+                strength_desc = "中等"
+            else:
+                strength_desc = "弱"
+
+            # 将趋势方向转换为中文
+            if overall_trend == 'strong_uptrend':
+                trend_desc = f"强势上涨 (强度: {strength_desc})"
+            elif overall_trend == 'uptrend':
+                trend_desc = f"上涨 (强度: {strength_desc})"
+            elif overall_trend == 'strong_downtrend':
+                trend_desc = f"强势下跌 (强度: {strength_desc})"
+            elif overall_trend == 'downtrend':
+                trend_desc = f"下跌 (强度: {strength_desc})"
+            else:
+                trend_desc = f"震荡 (强度: {strength_desc})"
+        else:
+            # 回退到旧的格式
+            old_trend_analysis = market_data.get('trend_analysis', {})
+            overall_trend = old_trend_analysis.get('overall', '震荡')
+            trend_strength = old_trend_analysis.get('strength', 'normal')
+            trend_desc = f"{overall_trend} ({trend_strength})"
+            trend_consensus = 0.0
 
         # 构建技术指标状态
         rsi_status = "超卖" if rsi < 35 else "超买" if rsi > 70 else "正常"
@@ -212,24 +244,29 @@ ATR波动率: {atr_pct:.2f}%
 RSI: {rsi:.1f} ({rsi_status})
 MACD: {macd}
 均线状态: {ma_status}
-整体趋势: {overall_trend} ({trend_strength})
+整体趋势: {trend_desc}
 市场情绪: {sentiment}
 
 【⚡ 关键分析要求】
-1. 结合价格位置和技术指标综合判断
-2. 考虑波动率对策略的影响
-3. 关注市场情绪和资金流向
-4. 基于博弈思维寻找最优入场点
-5. 在低波动率环境下（ATR<1.5%），积极寻找区间交易机会，避免过度保守
+1. 优先考虑趋势方向：当趋势强度>0.5时，必须顺势而为，不得逆势操作
+2. 结合价格位置和技术指标综合判断
+3. 考虑波动率对策略的影响
+4. 关注市场情绪和资金流向
+5. 基于博弈思维寻找最优入场点
+6. 在低波动率环境下（ATR<1.5%），且趋势强度<0.3时，可考虑区间交易机会
 
 【⚠️ 风险控制】
 {risk_hint}
 
 【💡 决策框架】
-- 如果价格处于相对低位且技术指标超卖，优先考虑做多
-- 如果价格处于相对高位且技术指标超买，优先考虑做空
-- 在震荡市中，采用区间交易策略，高抛低吸
-- 在趋势明确时，顺势而为，避免逆势操作
+- 趋势强度>0.5时：
+  - 上涨趋势：逢回调做多，禁止做空
+  - 下跌趋势：逢反弹做空，禁止做多
+- 趋势强度<0.3时：
+  - 价格处于相对低位且技术指标超卖，可考虑做多
+  - 价格处于相对高位且技术指标超买，可考虑做空
+  - 在震荡市中，采用区间交易策略，高抛低吸
+- 必须设置止损：趋势交易止损2-3%，区间交易止损1-2%
 
 请以JSON格式回复，包含以下字段：
 {{
@@ -266,10 +303,42 @@ MACD: {macd}
         ma_status = technical_data.get('ma_status', 'N/A')
         atr_pct = float(technical_data.get('atr_pct', 0))
 
-        # 获取趋势分析
-        trend_analysis = market_data.get('trend_analysis', {})
-        overall_trend = trend_analysis.get('overall', '震荡')
-        trend_strength = trend_analysis.get('strength', 'normal')
+        # 获取趋势分析（从technical_data中获取新的趋势分析）
+        trend_analysis = technical_data.get('trend_analysis', {})
+        if trend_analysis:
+            overall_trend = trend_analysis.get('overall_trend', 'neutral')
+            trend_strength = trend_analysis.get('trend_strength', 0.0)
+            trend_consensus = trend_analysis.get('trend_consensus', 0.0)
+            trend_details = trend_analysis.get('trend_details', {})
+
+            # 将趋势强度转换为描述性文字
+            if trend_strength > 0.7:
+                strength_desc = "极强"
+            elif trend_strength > 0.5:
+                strength_desc = "强"
+            elif trend_strength > 0.3:
+                strength_desc = "中等"
+            else:
+                strength_desc = "弱"
+
+            # 将趋势方向转换为中文
+            if overall_trend == 'strong_uptrend':
+                trend_desc = f"强势上涨 (强度: {strength_desc})"
+            elif overall_trend == 'uptrend':
+                trend_desc = f"上涨 (强度: {strength_desc})"
+            elif overall_trend == 'strong_downtrend':
+                trend_desc = f"强势下跌 (强度: {strength_desc})"
+            elif overall_trend == 'downtrend':
+                trend_desc = f"下跌 (强度: {strength_desc})"
+            else:
+                trend_desc = f"震荡 (强度: {strength_desc})"
+        else:
+            # 回退到旧的格式
+            old_trend_analysis = market_data.get('trend_analysis', {})
+            overall_trend = old_trend_analysis.get('overall', '震荡')
+            trend_strength = old_trend_analysis.get('strength', 'normal')
+            trend_desc = f"{overall_trend} ({trend_strength})"
+            trend_consensus = 0.0
 
         # 构建技术指标状态
         rsi_status = "超卖" if rsi < 35 else "超买" if rsi > 70 else "正常"
@@ -341,17 +410,18 @@ ATR波动率: {atr_pct:.2f}%
 RSI: {rsi:.1f} ({rsi_status})
 MACD: {macd}
 均线状态: {ma_status}
-整体趋势: {overall_trend} ({trend_strength})
+整体趋势: {trend_desc}
 市场情绪: {sentiment}
 
 {framework}
 
 【⚡ 关键分析要求】
-1. 结合价格位置和技术指标综合判断
-2. 考虑波动率对策略的影响
-3. 关注市场情绪和资金流向
-4. 基于博弈思维寻找最优入场点
-5. 在低波动率环境下（ATR<1.5%），积极寻找区间交易机会，避免过度保守
+1. 优先考虑趋势方向：当趋势强度>0.5时，必须顺势而为，不得逆势操作
+2. 结合价格位置和技术指标综合判断
+3. 考虑波动率对策略的影响
+4. 关注市场情绪和资金流向
+5. 基于博弈思维寻找最优入场点
+6. 在低波动率环境下（ATR<1.5%），且趋势强度<0.3时，可考虑区间交易机会
 
 【⚠️ 风险控制】
 {risk_hint}
@@ -467,21 +537,24 @@ MACD: {macd}
         }
 
         data = {
-            'model': 'qwen-turbo',
+            'model': 'qwen-plus',  # 使用修复后的模型
             'input': {
                 'messages': [
+                    {'role': 'system', 'content': '你是一个专业的加密货币交易分析师，擅长技术分析和市场预测。请基于提供的市场数据给出准确的交易建议。'},
                     {'role': 'user', 'content': prompt}
                 ]
             },
             'parameters': {
                 'temperature': 0.3,
-                'max_tokens': 500
+                'max_tokens': 500,
+                'top_p': 0.95,
+                'result_format': 'message'
             }
         }
 
         try:
             async with self.session.post(
-                'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+                'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation',  # 使用原生端点
                 headers=headers,
                 json=data,
                 timeout=aiohttp.ClientTimeout(total=timeout_config['total_timeout'])
@@ -492,7 +565,8 @@ MACD: {macd}
                     raise NetworkError(f"Qwen API错误: {response.status}")
 
                 result = await response.json()
-                content = result['output']['choices'][0]['message']['content']
+                message = result['output']['choices'][0]['message']
+                content = message.get('content', '')
 
                 return self._parse_ai_response(content, 'qwen')
 

@@ -43,7 +43,19 @@ class PositionManager(BaseComponent):
     async def update_position(self, exchange_client, symbol: str = "BTC/USDT:USDT") -> Optional[PositionInfo]:
         """更新仓位信息"""
         try:
-            # 从交易所获取仓位信息
+            # 检查是否为测试模式
+            if exchange_client.is_test_mode:
+                logger.info(f"测试模式：返回模拟仓位信息: {symbol}")
+                # 测试模式下，如果没有缓存的仓位，返回None（表示无持仓）
+                if symbol not in self.positions:
+                    logger.info(f"测试模式：无持仓: {symbol}")
+                    return None
+                # 如果有缓存的仓位，返回缓存的信息
+                position = self.positions[symbol]
+                logger.info(f"测试模式：返回缓存仓位 - 数量: {position.amount}, 方向: {position.side.value}")
+                return position
+
+            # 从交易所获取仓位信息（非测试模式）
             logger.info(f"开始更新仓位信息: {symbol}")
             positions = await exchange_client.fetch_positions(symbol)
 

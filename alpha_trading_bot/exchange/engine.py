@@ -41,17 +41,26 @@ class TradingEngine(BaseComponent):
         super().__init__(config)
         self.config = config
 
+        # 加载主配置以获取策略设置
+        from ..config import load_config
+        self.main_config = load_config()
+
         # 创建组件实例
         self.exchange_client = ExchangeClient()
         self.order_manager = OrderManager(self.exchange_client)
         self.position_manager = PositionManager()
         self.risk_manager = RiskManager()
+
+        # 创建交易执行器配置
+        executor_config = TradeExecutorConfig(name="TradeExecutor")
+        executor_config.enable_tp_sl = self.main_config.strategies.take_profit_enabled or self.main_config.strategies.stop_loss_enabled
+
         self.trade_executor = TradeExecutor(
             self.exchange_client,
             self.order_manager,
             self.position_manager,
             self.risk_manager,
-            TradeExecutorConfig(name="TradeExecutor")
+            executor_config
         )
 
         # 状态管理
@@ -77,6 +86,8 @@ class TradingEngine(BaseComponent):
             # 检查是否为测试模式
             if self.config.test_mode:
                 logger.info("测试模式：跳过真实交易所初始化")
+                # 初始化交易所客户端（测试模式）
+                await self.exchange_client.initialize()
                 # 初始化各组件（测试模式）
                 await self.order_manager.initialize()
                 await self.position_manager.initialize()
