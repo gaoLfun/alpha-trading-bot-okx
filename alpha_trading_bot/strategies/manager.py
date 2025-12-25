@@ -401,9 +401,9 @@ class StrategyManager(BaseComponent):
 
             # 尝试从全局配置获取
             try:
-                from alpha_trading_bot.config import get_config_manager
-                config_manager = await get_config_manager()
-                return config_manager.trading.allow_short_selling
+                from alpha_trading_bot.config import load_config
+                config = load_config()
+                return config.trading.allow_short_selling
             except:
                 # 如果无法获取全局配置，默认允许做空
                 return True
@@ -516,9 +516,9 @@ class StrategyManager(BaseComponent):
                 if signal_type == 'sell':
                     # 获取交易配置
                     try:
-                        from alpha_trading_bot.config import get_config_manager
-                        config_manager = await get_config_manager()
-                        trading_config = config_manager.trading
+                        from alpha_trading_bot.config import load_config
+                        config = load_config()
+                        trading_config = config.trading
 
                         if not trading_config.allow_short_selling:
                             logger.warning(f"AI生成的SELL信号被忽略：做空功能已禁用(allow_short_selling={trading_config.allow_short_selling})")
