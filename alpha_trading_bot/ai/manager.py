@@ -34,6 +34,7 @@ class AIManagerConfig(BaseConfig):
     default_deepseek_model: str = "deepseek-chat"
     default_kimi_model: str = "moonshot-v1-32k"
     enable_dynamic_cache: bool = True  # 启用动态缓存
+    enable_signal_optimization: bool = True  # 启用信号优化
 
 class AIManager(BaseComponent):
     """AI管理器"""
@@ -473,6 +474,34 @@ class AIManager(BaseComponent):
                 'provider': 'fallback'
             }
 
+    def _compare_buy_changes(self, original_signals: List[Dict], optimized_signals: List[Dict]) -> Dict[str, int]:
+        """比较BUY信号优化前后的变化"""
+        changed_count = 0
+        buy_to_hold_count = 0
+        confidence_changes = 0
+
+        for orig, opt in zip(original_signals, optimized_signals):
+            # 只统计BUY信号的变化
+            if orig.get('signal', 'HOLD').upper() == 'BUY':
+                # 检查信号是否改变
+                if orig.get('signal') != opt.get('signal'):
+                    changed_count += 1
+                    # 统计BUY转HOLD
+                    if opt.get('signal', 'HOLD').upper() == 'HOLD':
+                        buy_to_hold_count += 1
+
+                # 检查信心度是否改变
+                orig_conf = orig.get('confidence', 0.5)
+                opt_conf = opt.get('confidence', 0.5)
+                if abs(orig_conf - opt_conf) > 0.01:  # 允许微小浮点误差
+                    confidence_changes += 1
+
+        return {
+            'changed_count': changed_count,
+            'buy_to_hold_count': buy_to_hold_count,
+            'confidence_changes': confidence_changes
+        }
+
     def _generate_cache_key(self, market_data: Dict[str, Any]) -> str:
         """生成缓存键 - 基于价格区间而非精确值，提高缓存命中率"""
         # 获取关键数据
@@ -599,7 +628,8 @@ async def create_ai_manager() -> AIManager:
         fallback_enabled=config.ai.fallback_enabled,
         cache_duration=config.ai.cache_duration,
         min_confidence=config.ai.min_confidence_threshold,
-        fusion_enabled=config.ai.use_multi_ai_fusion  # 融合模式与多AI模式保持一致
+        fusion_enabled=config.ai.use_multi_ai_fusion,  # 融合模式与多AI模式保持一致
+        enable_signal_optimization=config.ai.enable_signal_optimization  # 信号优化配置
     )
 
     _ai_manager_instance = AIManager(ai_config)

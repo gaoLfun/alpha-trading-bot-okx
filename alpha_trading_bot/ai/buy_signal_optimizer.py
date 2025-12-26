@@ -385,7 +385,15 @@ class BuySignalOptimizer:
     def get_buy_signal_stats(self) -> Dict[str, Any]:
         """获取BUY信号统计"""
         if not self.buy_signal_history:
-            return {'total_signals': 0}
+            return {
+                'total_signals': 0,
+                'recent_signals_30min': 0,
+                'provider_distribution': {},
+                'avg_confidence': 0.0,
+                'avg_price_position': 0.0,
+                'avg_rsi': 0.0,
+                'in_cooldown': False
+            }
 
         total_signals = len(self.buy_signal_history)
         recent_signals = len(self.recent_buy_signals)
