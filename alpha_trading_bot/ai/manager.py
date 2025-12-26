@@ -16,6 +16,7 @@ from .model_selector import model_selector, ModelSelector
 from .dynamic_cache import DynamicCacheManager, cache_manager
 from .cache_monitor import cache_monitor
 from .signal_optimizer import SignalOptimizer
+from .buy_signal_optimizer import BuySignalOptimizer
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class AIManager(BaseComponent):
         self.dynamic_cache = cache_manager  # 使用全局动态缓存管理器
         self.dynamic_cache.config.base_duration = config.cache_duration  # 同步配置
         self.signal_optimizer = SignalOptimizer()  # 添加信号优化器
+        self.buy_optimizer = BuySignalOptimizer()  # 添加BUY信号专项优化器
 
     async def initialize(self) -> bool:
         """初始化AI管理器"""
@@ -358,6 +360,21 @@ class AIManager(BaseComponent):
                     if optimized_results:
                         results = optimized_results
                         logger.info(f"✅ 信号优化完成，优化了 {len(results)} 个信号")
+
+                # 专项优化BUY信号
+                if hasattr(self, 'buy_optimizer') and self.buy_optimizer:
+                    logger.info("🎯 开始BUY信号专项优化...")
+                    buy_optimized_results = self.buy_optimizer.optimize_buy_signals(results, market_data)
+                    if buy_optimized_results:
+                        # 比较优化前后的变化
+                        buy_changes = self._compare_buy_changes(results, buy_optimized_results)
+                        if buy_changes['changed_count'] > 0:
+                            logger.info(f"🎯 BUY信号优化: {buy_changes['changed_count']}个信号被优化")
+                            if buy_changes['buy_to_hold_count'] > 0:
+                                logger.info(f"🔄 {buy_changes['buy_to_hold_count']}个BUY转为HOLD")
+                            if buy_changes['confidence_changes'] > 0:
+                                logger.info(f"📊 {buy_changes['confidence_changes']}个信号信心度调整")
+                        results = buy_optimized_results
 
                 from ..config import load_config
                 config = load_config()
