@@ -76,6 +76,9 @@ class BuySignalOptimizer:
         original_confidence = signal.get('confidence', 0.5)
         reason = signal.get('reason', '')
 
+        # 记录优化开始
+        logger.debug(f"🎯 {provider.upper()} BUY信号优化开始 - 原始信心度: {original_confidence:.2f}")
+
         # Ensure 'reason' key exists
         if 'reason' not in optimized:
             optimized['reason'] = ''
@@ -93,26 +96,33 @@ class BuySignalOptimizer:
         volume = market_data.get('volume', 0)
         avg_volume = market_data.get('avg_volume_24h', volume)
 
+        # 记录当前市场条件
+        logger.debug(f"📊 市场条件 - 价格位置: {price_position*100:.1f}%, RSI: {rsi:.1f}, ATR: {atr_percentage:.2f}%, 趋势强度: {trend_strength:.2f}")
+
         # 1. 价格位置检查（避免高位接盘）
         if price_position > self.buy_optimizations['max_price_position']:
             # 价格处于高位，降低BUY信号强度或转为HOLD
             optimized['confidence'] = max(original_confidence - 0.15, 0.3)
             optimized['reason'] += f" | ⚠️ 价格处于{price_position*100:.1f}%高位，风险较高"
+            logger.debug(f"🚨 价格位置风险: {price_position*100:.1f}% > 85%，降低信心度15%")
 
             # 如果信心度降得太低，考虑转为HOLD
             if optimized['confidence'] < 0.45:
                 optimized['signal'] = 'HOLD'
                 optimized['reason'] += " | 高位风险过大，建议观望"
+                logger.info(f"🔄 {provider.upper()}: BUY转HOLD - 价格位置风险过高")
 
         # 2. RSI检查（避免超买买入）
         elif rsi > self.buy_optimizations['max_rsi_for_buy']:
             optimized['confidence'] = max(original_confidence - 0.1, 0.35)
             optimized['reason'] += f" | RSI为{rsi:.1f}，接近超买区域"
+            logger.debug(f"🚨 RSI超买风险: {rsi:.1f} > 65，降低信心度10%")
 
         # 3. 低波动率陷阱检查
         elif atr_percentage < self.buy_optimizations['min_atr_for_buy']:
             optimized['confidence'] = max(original_confidence - 0.12, 0.35)
             optimized['reason'] += f" | ATR仅{atr_percentage:.2f}%，低波动可能为陷阱"
+            logger.debug(f"🚨 低波动率陷阱: ATR {atr_percentage:.2f}% < 0.15%，降低信心度12%")
 
         # 4. 趋势强度检查
         elif trend_strength < self.buy_optimizations['min_trend_strength']:
@@ -133,20 +143,29 @@ class BuySignalOptimizer:
 
         # 7. 风险累积检查（多个风险因素叠加）
         risk_factors = 0
+        risk_details = []
+
         if price_position > 0.75:
             risk_factors += 1
+            risk_details.append(f"价格位置({price_position*100:.0f}%)")
         if rsi > 65:
             risk_factors += 1
+            risk_details.append(f"RSI({rsi:.0f})")
         if atr_percentage < 0.2:
             risk_factors += 1
+            risk_details.append(f"低ATR({atr_percentage:.2f}%)")
         if trend_strength < 0.3:
             risk_factors += 1
+            risk_details.append(f"弱趋势({trend_strength:.2f})")
 
         # 如果存在3个或以上风险因素，强制转为HOLD
         if risk_factors >= 3:
             optimized['signal'] = 'HOLD'
             optimized['confidence'] = min(optimized.get('confidence', original_confidence) - 0.2, 0.4)
             optimized['reason'] += f" | 累积风险过高({risk_factors}个风险因素)"
+            logger.warning(f"⚠️ {provider.upper()}: 累积风险过高 - {', '.join(risk_details)}，强制转HOLD")
+        elif risk_factors >= 2:
+            logger.debug(f"⚠️ {provider.upper()}: 检测到{risk_factors}个风险因素 - {', '.join(risk_details)}")
 
         # 8. 增强买入信号（满足多个有利条件）
         else:
@@ -179,18 +198,24 @@ class BuySignalOptimizer:
             if favorable_conditions >= 3:
                 optimized['confidence'] = min(original_confidence + 0.1, 0.9)
                 optimized['reason'] += " | 多重利好确认，强烈买入信号"
+                logger.info(f"✅ {provider.upper()}: 信号增强 - 满足{favorable_conditions}个有利条件")
             elif favorable_conditions >= 2:
                 optimized['confidence'] = min(original_confidence + 0.05, 0.85)
                 optimized['reason'] += " | 双重利好确认"
+                logger.debug(f"✅ {provider.upper()}: 信号增强 - 满足{favorable_conditions}个有利条件")
 
         # 8. 提供商特定优化
         if provider == 'qwen':
+            logger.debug(f"🔧 {provider.upper()}: 应用提供商特定优化")
             optimized = self._optimize_qwen_buy_signal(optimized, market_data)
         elif provider == 'deepseek':
+            logger.debug(f"🔧 {provider.upper()}: 应用提供商特定优化")
             optimized = self._optimize_deepseek_buy_signal(optimized, market_data)
         elif provider == 'kimi':
+            logger.debug(f"🔧 {provider.upper()}: 应用提供商特定优化")
             optimized = self._optimize_kimi_buy_signal(optimized, market_data)
         elif provider == 'openai':
+            logger.debug(f"🔧 {provider.upper()}: 应用提供商特定优化")
             optimized = self._optimize_openai_buy_signal(optimized, market_data)
 
         # 9. 时间窗口检查（避免特定时段）
@@ -208,12 +233,28 @@ class BuySignalOptimizer:
             optimized['reason'] += " | 买入冷却期内，降低信号强度"
 
         # 记录优化详情
-        if original_confidence != optimized['confidence']:
+        if original_confidence != optimized['confidence'] or signal.get('signal') != optimized['signal']:
             change = optimized['confidence'] - original_confidence
             direction = "增强" if change > 0 else "减弱"
-            logger.info(f"🔧 {provider.upper()} BUY信号优化: "
-                       f"信心 {original_confidence:.2f} → "
-                       f"{optimized['confidence']:.2f} ({direction})")
+            signal_change = ""
+            if signal.get('signal') != optimized['signal']:
+                signal_change = f"，信号 {signal.get('signal')} → {optimized['signal']}"
+
+            if abs(change) > 0.1 or signal.get('signal') != optimized['signal']:
+                # 显著变化记录为INFO
+                logger.info(f"🔧 {provider.upper()} BUY信号优化: "
+                           f"信心 {original_confidence:.2f} → "
+                           f"{optimized['confidence']:.2f} ({direction}){signal_change}")
+            else:
+                # 微小变化记录为DEBUG
+                logger.debug(f"🔧 {provider.upper()} BUY信号优化: "
+                            f"信心 {original_confidence:.2f} → "
+                            f"{optimized['confidence']:.2f} ({direction}){signal_change}")
+        else:
+            logger.debug(f"✅ {provider.upper()} BUY信号无需优化 - 信心度保持 {original_confidence:.2f}")
+
+        # 记录优化结束
+        logger.debug(f"🎯 {provider.upper()} BUY信号优化完成 - 最终信心度: {optimized['confidence']:.2f}")
 
         return optimized
 
