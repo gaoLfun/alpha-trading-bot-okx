@@ -15,14 +15,14 @@ class BuySignalOptimizer:
     """BUY信号专项优化器"""
 
     def __init__(self):
-        # BUY信号专项优化参数
-        self.buy_optimizations = {
+        # BUY信号专项优化参数 - 基础配置
+        self.base_optimizations = {
             # 价格位置限制
-            'max_price_position': 0.85,  # 超过85%高位限制BUY
+            'max_price_position': 0.85,  # 基础阈值（将根据趋势调整）
             'min_price_position': 0.15,  # 低于15%低位增强BUY
 
             # RSI限制
-            'max_rsi_for_buy': 65,      # RSI超过65限制BUY
+            'max_rsi_for_buy': 65,      # 基础阈值（将根据趋势调整）
             'min_rsi_for_buy': 35,      # RSI低于35增强BUY
 
             # ATR波动率限制
@@ -42,9 +42,51 @@ class BuySignalOptimizer:
             'cooldown_minutes': 30,     # BUY信号冷却时间
         }
 
+        # 分级风控配置 - 基于趋势强度动态调整
+        self.dynamic_thresholds = {
+            'strong_trend': {  # 趋势强度 > 0.5
+                'max_price_position': 0.95,   # 放宽至95%
+                'max_rsi_for_buy': 75,        # 放宽至75
+                'risk_factor_threshold': 4,   # 4个因素才强制HOLD
+                'price_position_weight': 0.7, # 降低权重
+                'rsi_weight': 0.5,            # 降低权重
+                'trend_weight': 1.5,          # 提高趋势权重
+            },
+            'medium_trend': {  # 趋势强度 0.3-0.5
+                'max_price_position': 0.90,   # 90%
+                'max_rsi_for_buy': 70,        # 70
+                'risk_factor_threshold': 3,   # 保持3个
+                'price_position_weight': 0.85,
+                'rsi_weight': 0.75,
+                'trend_weight': 1.2,
+            },
+            'weak_trend': {    # 趋势强度 < 0.3
+                'max_price_position': 0.85,   # 维持85%
+                'max_rsi_for_buy': 65,        # 维持65
+                'risk_factor_threshold': 3,   # 保持3个
+                'price_position_weight': 1.0, # 全权重
+                'rsi_weight': 1.0,
+                'trend_weight': 1.0,
+            }
+        }
+
         # 记录BUY信号历史
         self.buy_signal_history = []
         self.recent_buy_signals = []  # 最近30分钟的BUY信号
+
+    def _get_trend_level(self, trend_strength: float) -> str:
+        """根据趋势强度返回趋势级别"""
+        if trend_strength > 0.5:
+            return 'strong_trend'
+        elif trend_strength > 0.3:
+            return 'medium_trend'
+        else:
+            return 'weak_trend'
+
+    def _get_dynamic_thresholds(self, trend_strength: float) -> dict:
+        """获取基于趋势强度的动态阈值"""
+        trend_level = self._get_trend_level(trend_strength)
+        return self.dynamic_thresholds[trend_level]
 
     def optimize_buy_signals(self, signals: List[Dict[str, Any]],
                            market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -99,73 +141,102 @@ class BuySignalOptimizer:
         # 记录当前市场条件
         logger.debug(f"📊 市场条件 - 价格位置: {price_position*100:.1f}%, RSI: {rsi:.1f}, ATR: {atr_percentage:.2f}%, 趋势强度: {trend_strength:.2f}")
 
-        # 1. 价格位置检查（避免高位接盘）
-        if price_position > self.buy_optimizations['max_price_position']:
+        # 获取基于趋势强度的动态阈值
+        thresholds = self._get_dynamic_thresholds(trend_strength)
+
+        # 1. 价格位置检查（动态风控）
+        if price_position > thresholds['max_price_position']:
             # 价格处于高位，降低BUY信号强度或转为HOLD
-            optimized['confidence'] = max(original_confidence - 0.15, 0.3)
-            optimized['reason'] += f" | ⚠️ 价格处于{price_position*100:.1f}%高位，风险较高"
-            logger.debug(f"🚨 价格位置风险: {price_position*100:.1f}% > 85%，降低信心度15%")
+            confidence_reduction = 0.15 * thresholds['price_position_weight']
+            optimized['confidence'] = max(original_confidence - confidence_reduction, 0.3)
+            optimized['reason'] += f" | ⚠️ 价格处于{price_position*100:.1f}%高位，风险较高（趋势强度：{trend_strength:.2f}）"
+            logger.debug(f"🚨 价格位置风险: {price_position*100:.1f}% > {thresholds['max_price_position']*100:.0f}%，降低信心度{confidence_reduction*100:.0f}%")
 
             # 如果信心度降得太低，考虑转为HOLD
             if optimized['confidence'] < 0.45:
                 optimized['signal'] = 'HOLD'
                 optimized['reason'] += " | 高位风险过大，建议观望"
-                logger.info(f"🔄 {provider.upper()}: BUY转HOLD - 价格位置风险过高")
+                logger.info(f"🔄 {provider.upper()}: BUY转HOLD - 价格位置风险过高（趋势强度：{trend_strength:.2f}）")
 
-        # 2. RSI检查（避免超买买入）
-        elif rsi > self.buy_optimizations['max_rsi_for_buy']:
-            optimized['confidence'] = max(original_confidence - 0.1, 0.35)
-            optimized['reason'] += f" | RSI为{rsi:.1f}，接近超买区域"
-            logger.debug(f"🚨 RSI超买风险: {rsi:.1f} > 65，降低信心度10%")
+        # 2. RSI检查（动态风控）
+        elif rsi > thresholds['max_rsi_for_buy']:
+            confidence_reduction = 0.1 * thresholds['rsi_weight']
+            optimized['confidence'] = max(original_confidence - confidence_reduction, 0.35)
+            optimized['reason'] += f" | RSI为{rsi:.1f}，接近超买区域（趋势强度：{trend_strength:.2f}）"
+            logger.debug(f"🚨 RSI超买风险: {rsi:.1f} > {thresholds['max_rsi_for_buy']}，降低信心度{confidence_reduction*100:.0f}%")
 
         # 3. 低波动率陷阱检查
-        elif atr_percentage < self.buy_optimizations['min_atr_for_buy']:
+        elif atr_percentage < self.base_optimizations['min_atr_for_buy']:
             optimized['confidence'] = max(original_confidence - 0.12, 0.35)
             optimized['reason'] += f" | ATR仅{atr_percentage:.2f}%，低波动可能为陷阱"
             logger.debug(f"🚨 低波动率陷阱: ATR {atr_percentage:.2f}% < 0.15%，降低信心度12%")
 
         # 4. 趋势强度检查
-        elif trend_strength < self.buy_optimizations['min_trend_strength']:
+        elif trend_strength < self.base_optimizations['min_trend_strength']:
             optimized['confidence'] = max(original_confidence - 0.08, 0.4)
             optimized['reason'] += f" | 趋势强度{trend_strength:.2f}较弱，买入需谨慎"
 
         # 5. ADX检查（避免无趋势行情）
-        elif adx < self.buy_optimizations['min_adx']:
+        elif adx < self.base_optimizations['min_adx']:
             optimized['confidence'] = max(original_confidence - 0.08, 0.4)
             optimized['reason'] += f" | ADX为{adx:.1f}，市场无明显趋势"
 
         # 6. 成交量检查
         elif avg_volume > 0:
             volume_ratio = volume / avg_volume
-            if volume_ratio < self.buy_optimizations['min_volume_ratio']:
+            if volume_ratio < self.base_optimizations['min_volume_ratio']:
                 optimized['confidence'] = max(original_confidence - 0.06, 0.45)
                 optimized['reason'] += f" | 成交量仅为均值{volume_ratio:.1f}倍，动能不足"
 
-        # 7. 风险累积检查（多个风险因素叠加）
+        # 7. 风险累积检查（多个风险因素叠加） - 基于趋势强度的动态风控
         risk_factors = 0
         risk_details = []
 
-        if price_position > 0.75:
-            risk_factors += 1
+        # 获取基于趋势强度的动态阈值
+        thresholds = self._get_dynamic_thresholds(trend_strength)
+
+        # 价格位置风险（动态阈值）
+        if price_position > thresholds['max_price_position']:
+            risk_factors += thresholds['price_position_weight']
             risk_details.append(f"价格位置({price_position*100:.0f}%)")
-        if rsi > 65:
-            risk_factors += 1
+
+        # RSI风险（动态阈值）
+        if rsi > thresholds['max_rsi_for_buy']:
+            risk_factors += thresholds['rsi_weight']
             risk_details.append(f"RSI({rsi:.0f})")
-        if atr_percentage < 0.2:
-            risk_factors += 1
+
+        # ATR风险（标准，不受趋势影响）
+        if atr_percentage < self.base_optimizations['min_atr_for_buy']:
+            risk_factors += 1.0
             risk_details.append(f"低ATR({atr_percentage:.2f}%)")
-        if trend_strength < 0.3:
-            risk_factors += 1
+
+        # 趋势强度风险（关键指标，权重更高）
+        if trend_strength < self.base_optimizations['min_trend_strength']:  # 使用绝对阈值
+            risk_factors += thresholds['trend_weight']
             risk_details.append(f"弱趋势({trend_strength:.2f})")
 
-        # 如果存在3个或以上风险因素，强制转为HOLD
-        if risk_factors >= 3:
-            optimized['signal'] = 'HOLD'
-            optimized['confidence'] = min(optimized.get('confidence', original_confidence) - 0.2, 0.4)
-            optimized['reason'] += f" | 累积风险过高({risk_factors}个风险因素)"
-            logger.warning(f"⚠️ {provider.upper()}: 累积风险过高 - {', '.join(risk_details)}，强制转HOLD")
-        elif risk_factors >= 2:
-            logger.debug(f"⚠️ {provider.upper()}: 检测到{risk_factors}个风险因素 - {', '.join(risk_details)}")
+        # 根据趋势强度调整风控严格程度
+        risk_threshold = thresholds['risk_factor_threshold']
+
+        if risk_factors >= risk_threshold:
+            # 重度风险 - 根据趋势强度决定是否强制HOLD
+            if trend_strength > 0.5:
+                # 强趋势市场 - 降低惩罚，保持BUY但大幅降低信心度
+                optimized['confidence'] = max(optimized.get('confidence', original_confidence) - 0.3, 0.3)
+                optimized['reason'] += f" | 强趋势市场中风险较高({risk_factors:.1f}个风险因素)"
+                logger.warning(f"⚠️ {provider.upper()}: 强趋势市场中风险较高 - {', '.join(risk_details)}")
+            else:
+                # 弱趋势市场 - 维持严格风控
+                optimized['signal'] = 'HOLD'
+                optimized['confidence'] = min(optimized.get('confidence', original_confidence) - 0.2, 0.4)
+                optimized['reason'] += f" | 累积风险过高({risk_factors:.1f}个风险因素)"
+                logger.warning(f"⚠️ {provider.upper()}: 累积风险过高 - {', '.join(risk_details)}，强制转HOLD")
+        elif risk_factors >= 2.0:
+            # 中度风险 - 降低信心度但不强制HOLD
+            confidence_reduction = min(0.15, risk_factors * 0.08)
+            optimized['confidence'] = max(optimized.get('confidence', original_confidence) - confidence_reduction, 0.45)
+            optimized['reason'] += f" | 检测到风险因素({risk_factors:.1f}个)"
+            logger.info(f"⚠️ {provider.upper()}: 检测到{risk_factors:.1f}个风险因素 - {', '.join(risk_details)}")
 
         # 8. 增强买入信号（满足多个有利条件）
         else:
@@ -223,7 +294,7 @@ class BuySignalOptimizer:
         current_minute = datetime.now().minute
 
         # 避免最后一小时交易（交易所结算风险）
-        if self.buy_optimizations['avoid_last_hour'] and current_hour == 23:
+        if self.base_optimizations['avoid_last_hour'] and current_hour == 23:
             optimized['confidence'] = max(optimized.get('confidence', original_confidence) - 0.1, 0.3)
             optimized['reason'] += " | 避开最后一小时交易"
 

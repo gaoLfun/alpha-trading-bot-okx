@@ -250,13 +250,31 @@ class AIClient:
         else:
             sentiment = "😐 相对平衡"
 
-        # 构建风控提示
-        if is_consolidation:
-            risk_hint = "⚠️ 震荡市: 缩小止盈止损范围，降低仓位"
-        elif is_high_volatility:
-            risk_hint = "⚠️ 高波动: 扩大止损范围，谨慎操作"
+        # 构建动态风控提示（基于趋势强度）
+        if trend_strength > 0.5:
+            # 强趋势市场 - 放宽风控标准
+            if price_position > 90:
+                risk_hint = "⚠️ 强趋势中高位: 90%以上需谨慎，但趋势良好可适度放宽"
+            elif price_position > 80:
+                risk_hint = "✅ 强趋势中正常高位: 多头市场特征，正常操作"
+            else:
+                risk_hint = "✅ 强趋势中低位: 积极寻找买入机会"
+        elif trend_strength > 0.3:
+            # 中等趋势 - 标准风控
+            if is_consolidation:
+                risk_hint = "⚠️ 震荡市: 缩小止盈止损范围，降低仓位"
+            elif is_high_volatility:
+                risk_hint = "⚠️ 高波动: 扩大止损范围，谨慎操作"
+            else:
+                risk_hint = "✅ 正常波动: 标准止盈止损设置"
         else:
-            risk_hint = "✅ 正常波动: 标准止盈止损设置"
+            # 弱趋势 - 严格风控
+            if price_position > 85:
+                risk_hint = "🚨 弱趋势中高位: 严格控制风险，避免追高"
+            elif rsi > 65:
+                risk_hint = "🚨 弱趋势中高RSI: 超买区域，谨慎买入"
+            else:
+                risk_hint = "⚠️ 弱趋势: 保持谨慎，严格止损"
 
         # 构建增强的prompt
         prompt = f"""你是一个专业的加密货币交易员，擅长波段操作和趋势跟踪。请基于以下市场数据给出精准的交易建议：
@@ -290,17 +308,25 @@ MACD: {macd}
 【⚠️ 风险控制】
 {risk_hint}
 
-【💡 决策框架】
-- 趋势强度>0.25时：
-  - 上涨趋势：逢回调做多，禁止做空
-  - 下跌趋势：逢反弹做空，禁止做多
-- 趋势强度<0.25时：
-  - 单次涨幅>0.6%：直接考虑做多
-  - 累积涨幅>0.8%（5周期）：考虑做多
-  - 价格从低位（<35%）上涨：0.3%即可考虑做多
-  - 连续3个周期同向变化：即使平均0.05%也应重视
-  - 历史累积信号：累积变化>0.8% + 连续上涨≥3次 = 强烈买入信号
-- 必须设置止损：趋势交易止损1.2%，区间交易止损0.8%
+【💡 决策框架 - 基于趋势强度的动态评估】
+- 强趋势市场（趋势强度>0.5）:
+  - 价格位置80-90%：正常多头特征，不扣分，可正常买入
+  - 价格位置90-95%：需要谨慎，轻微扣分但仍可考虑买入
+  - 价格位置>95%：高风险，显著扣分
+  - RSI 70以下不视为超买，可放宽至75
+  - 单次涨幅>0.6%或累积涨幅>0.8%：强烈买入信号
+
+- 中等趋势市场（趋势强度0.3-0.5）:
+  - 价格位置85-90%：需要关注风险
+  - 价格位置>90%：高风险区域
+  - RSI 70为超买线
+  - 标准买入信号规则适用
+
+- 弱趋势/震荡市场（趋势强度<0.3）:
+  - 价格位置>85%：高风险，强制HOLD或大幅降低信心度
+  - RSI 65即为超买
+  - 严格风控，3个风险因素即强制HOLD
+  - 必须等待更明确的信号
 
 【🎯 特殊信号识别】
 - 低位反弹信号：价格位置<35% + 连续上涨 + RSI脱离超卖
@@ -433,13 +459,31 @@ MACD: {macd}
         else:
             sentiment = "😐 相对平衡"
 
-        # 构建风控提示
-        if is_consolidation:
-            risk_hint = "⚠️ 震荡市: 缩小止盈止损范围，降低仓位"
-        elif is_high_volatility:
-            risk_hint = "⚠️ 高波动: 扩大止损范围，谨慎操作"
+        # 构建动态风控提示（基于趋势强度）
+        if trend_strength > 0.5:
+            # 强趋势市场 - 放宽风控标准
+            if price_position > 90:
+                risk_hint = "⚠️ 强趋势中高位: 90%以上需谨慎，但趋势良好可适度放宽"
+            elif price_position > 80:
+                risk_hint = "✅ 强趋势中正常高位: 多头市场特征，正常操作"
+            else:
+                risk_hint = "✅ 强趋势中低位: 积极寻找买入机会"
+        elif trend_strength > 0.3:
+            # 中等趋势 - 标准风控
+            if is_consolidation:
+                risk_hint = "⚠️ 震荡市: 缩小止盈止损范围，降低仓位"
+            elif is_high_volatility:
+                risk_hint = "⚠️ 高波动: 扩大止损范围，谨慎操作"
+            else:
+                risk_hint = "✅ 正常波动: 标准止盈止损设置"
         else:
-            risk_hint = "✅ 正常波动: 标准止盈止损设置"
+            # 弱趋势 - 严格风控
+            if price_position > 85:
+                risk_hint = "🚨 弱趋势中高位: 严格控制风险，避免追高"
+            elif rsi > 65:
+                risk_hint = "🚨 弱趋势中高RSI: 超买区域，谨慎买入"
+            else:
+                risk_hint = "⚠️ 弱趋势: 保持谨慎，严格止损"
 
         # 提供商特定分析框架
         provider_frameworks = {
@@ -500,11 +544,14 @@ MACD: {macd}
 【⚠️ 风险控制】
 {risk_hint}
 
-【💡 决策要点】
+【💡 决策要点 - 基于趋势强度的动态评估】
 - 价格相对位置: {price_position:.1f}% (0%=底部, 100%=顶部)
 - 技术指标状态: RSI {rsi_status}
 - 波动率水平: {'高' if is_high_volatility else '低' if is_consolidation else '正常'}
-- 建议操作: 基于以上分析给出明确信号
+- 趋势强度级别: {'强势' if trend_strength > 0.5 else '中等' if trend_strength > 0.3 else '弱势'}
+- 动态风控标准:
+  * {'强趋势: 价格位置放宽至95%, RSI放宽至75' if trend_strength > 0.5 else '中等趋势: 价格位置90%, RSI 70' if trend_strength > 0.3 else '弱趋势: 价格位置85%, RSI 65'}
+- 建议操作: 基于动态风险评估给出明确信号
 
 【🎯 特殊信号识别】
 - 低位反弹信号：价格位置<35% + 连续上涨 + RSI脱离超卖
