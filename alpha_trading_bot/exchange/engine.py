@@ -261,7 +261,8 @@ class TradingEngine(BaseComponent):
                     tasks = [
                         self.exchange_client.fetch_ohlcv(symbol, timeframe='15m', limit=100),  # 主时间框架
                         self.exchange_client.fetch_ohlcv(symbol, timeframe='1h', limit=50),    # 次要时间框架
-                        self.exchange_client.fetch_ohlcv(symbol, timeframe='4h', limit=30)     # 长期时间框架
+                        self.exchange_client.fetch_ohlcv(symbol, timeframe='4h', limit=30),    # 长期时间框架
+                        self.exchange_client.fetch_ohlcv(symbol, timeframe='1d', limit=30)     # 日线数据，用于计算7日区间
                     ]
 
                     # 并行执行所有任务
@@ -300,6 +301,24 @@ class TradingEngine(BaseComponent):
                     else:
                         error_msg = str(ohlcv_4h) if isinstance(ohlcv_4h, Exception) else "数据不足"
                         logger.debug(f"4小时K线数据获取失败: {error_msg}")
+
+                    # 处理日线K线（用于计算7日价格区间）
+                    ohlcv_1d = ohlcv_results[3]
+                    if not isinstance(ohlcv_1d, Exception) and ohlcv_1d and len(ohlcv_1d) >= 7:
+                        multi_timeframe_data['1d'] = ohlcv_1d
+                        logger.info(f"成功获取日线K线数据: {len(ohlcv_1d)} 根")
+
+                        # 计算7日价格区间（最近7天）
+                        recent_7d = ohlcv_1d[-7:]  # 取最近7天
+                        high_7d = max(candle[2] for candle in recent_7d)  # 7日最高价
+                        low_7d = min(candle[3] for candle in recent_7d)   # 7日最低价
+                        logger.info(f"📊 7日价格区间: ${low_7d:,.2f} - ${high_7d:,.2f}")
+                    else:
+                        error_msg = str(ohlcv_1d) if isinstance(ohlcv_1d, Exception) else "数据不足"
+                        logger.warning(f"日线K线数据获取失败: {error_msg}")
+                        # 使用估算值
+                        high_7d = float(ticker.high) if ticker.high else current_price * 1.05
+                        low_7d = float(ticker.low) if ticker.low else current_price * 0.95
 
                 except Exception as e:
                     logger.warning(f"并行获取OHLCV数据失败: {type(e).__name__}: {e}，将使用基础数据")
@@ -411,6 +430,9 @@ class TradingEngine(BaseComponent):
                 # 技术指标数据
                 'atr': atr_value,  # ATR绝对值
                 'atr_percentage': atr_percentage,  # ATR百分比
+                # 7日价格区间数据
+                'high_7d': high_7d if 'high_7d' in locals() else (float(ticker.high) if ticker.high else current_price * 1.05),
+                'low_7d': low_7d if 'low_7d' in locals() else (float(ticker.low) if ticker.low else current_price * 0.95),
                 # 多时间框架数据
                 'multi_timeframe': multi_timeframe_data
             }

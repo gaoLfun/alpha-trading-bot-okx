@@ -147,10 +147,45 @@ class AIClient:
         daily_low = float(market_data.get('low', price))
         volume = float(market_data.get('volume', 0))
 
+        # 24小时价格区间数据
+        high_24h = daily_high  # 24小时最高价
+        low_24h = daily_low    # 24小时最低价
+        range_24h = high_24h - low_24h  # 24小时价格区间
+        amplitude_24h = (range_24h / price * 100) if price > 0 else 0  # 24小时振幅百分比
+
+        # 7日价格区间数据
+        high_7d = float(market_data.get('high_7d', high_24h))  # 7日最高价，回退到24小时
+        low_7d = float(market_data.get('low_7d', low_24h))     # 7日最低价，回退到24小时
+        range_7d = high_7d - low_7d  # 7日价格区间
+        amplitude_7d = (range_7d / price * 100) if price > 0 else 0  # 7日振幅百分比
+
         # 计算价格位置（相对当日高低位置）
         price_position = 50  # 默认中位
         if daily_high > daily_low:
             price_position = ((price - daily_low) / (daily_high - daily_low)) * 100
+
+        # 24小时价格位置因子
+        price_position_24h = 50  # 默认中位
+        if high_24h > low_24h:
+            price_position_24h = ((price - low_24h) / (high_24h - low_24h)) * 100
+
+        # 7日价格位置因子
+        price_position_7d = 50  # 默认中位
+        if high_7d > low_7d:
+            price_position_7d = ((price - low_7d) / (high_7d - low_7d)) * 100
+
+        # 综合价格位置（优化权重：24小时55% + 7日45%）
+        # 权重逻辑：平衡短期敏感性和中期稳定性
+        composite_price_position = (price_position_24h * 0.55) + (price_position_7d * 0.45)
+
+        # 综合振幅因子分析（结合24小时和7日）
+        amplitude_level = "正常"
+        if amplitude_24h < 2.0 and amplitude_7d < 5.0:
+            amplitude_level = "低振幅（可能即将突破）"
+        elif amplitude_24h > 4.0 or amplitude_7d > 10.0:
+            amplitude_level = "高振幅（情绪激烈）"
+        else:
+            amplitude_level = "中振幅（正常波动）"
 
         # 计算价格变化
         price_change_pct = float(market_data.get('price_change_pct', 0))
@@ -287,6 +322,18 @@ class AIClient:
 当前价格: ${price:,.2f}
 价格区间: ${daily_low:,.2f} - ${daily_high:,.2f}
 价格位置: {price_position:.1f}% (相对当日区间)
+24小时最高价: ${high_24h:,.2f}
+24小时最低价: ${low_24h:,.2f}
+24小时价格区间: ${range_24h:,.2f} USDT
+24小时价格位置: {price_position_24h:.1f}% (相对24小时区间)
+7日最高价: ${high_7d:,.2f}
+7日最低价: ${low_7d:,.2f}
+7日价格区间: ${range_7d:,.2f} USDT
+7日价格位置: {price_position_7d:.1f}% (相对7日区间)
+综合价格位置: {composite_price_position:.1f}% (24h:70% + 7d:30%)
+24小时振幅: {amplitude_24h:.2f}%
+7日振幅: {amplitude_7d:.2f}%
+振幅状态: {amplitude_level}
 价格变化: {price_change_pct:+.2f}%
 累积变化: {cumulative_change:+.2f}% (最近5周期)
 连续上涨: {consecutive_up} 次
@@ -333,6 +380,31 @@ MACD: {macd}
   - 严格风控，3个风险因素即强制HOLD
   - 单次涨幅>1.0%或累积涨幅>1.2%才考虑买入
   - 必须等待更明确的信号
+
+【📈 综合价格区间因子（24小时+7日）】
+- 综合价格位置分析（权重：24小时70% + 7日30%）：
+  - 位置<20%：相对低位，关注反弹机会
+  - 位置20-40%：偏低位置，可考虑逐步建仓
+  - 位置40-60%：中性位置，等待明确信号
+  - 位置60-80%：偏高位置，谨慎追高
+  - 位置>80%：相对高位，注意回调风险
+
+- 多时间框架振幅分析：
+  - 24小时低振幅（<2%）+ 7日低振幅（<5%）：市场极度收敛，大行情前兆
+  - 24小时高振幅（>4%）或 7日高振幅（>10%）：情绪激烈，需要严格风控
+  - 其他组合：正常波动，标准操作
+
+- 区间突破信号（增强版）：
+  - 突破24h最高价：短期强势信号
+  - 突破7日最高价：中期强势信号，更可靠
+  - 跌破24h最低价：短期弱势信号
+  - 跌破7日最低价：中期弱势信号，更危险
+  - 在双重区间内：关注两个区间的支撑/阻力作用
+
+- 特殊状态识别：
+  - 24h和7日都在极低位（均<20%）：强烈关注，可能是底部区域
+  - 24h和7日都在极高位（均>80%）：高度警惕，可能是顶部区域
+  - 24h和7日位置差异大（>30%）：注意时间框架冲突，等待明确信号
 
 【🎯 特殊信号识别（优化版）】
 - 低位反弹信号：价格位置<35% + 连续3次上涨 + RSI>35且上升 + 趋势强度>0.1

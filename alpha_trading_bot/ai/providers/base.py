@@ -37,10 +37,21 @@ class BaseAIProvider(ABC):
         daily_low = float(market_data.get('low', price))
         volume = float(market_data.get('volume', 0))
 
-        # 计算价格位置
+        # 24小时价格区间数据
+        high_24h = daily_high
+        low_24h = daily_low
+        range_24h = high_24h - low_24h
+        amplitude_24h = (range_24h / price * 100) if price > 0 else 0
+
+        # 计算价格位置（当日区间）
         price_position = 50
         if daily_high > daily_low:
             price_position = ((price - daily_low) / (daily_high - daily_low)) * 100
+
+        # 24小时价格位置因子
+        price_position_24h = 50
+        if high_24h > low_24h:
+            price_position_24h = ((price - low_24h) / (high_24h - low_24h)) * 100
 
         # 获取技术指标
         technical_data = market_data.get('technical_data', {})
@@ -54,8 +65,12 @@ class BaseAIProvider(ABC):
 
 【市场数据】
 当前价格: ${price:,.2f}
-价格区间: ${daily_low:,.2f} - ${daily_high:,.2f}
-价格位置: {price_position:.1f}% (相对区间)
+当日价格区间: ${daily_low:,.2f} - ${daily_high:,.2f}
+当日价格位置: {price_position:.1f}% (相对当日区间)
+24小时最高价: ${high_24h:,.2f}
+24小时最低价: ${low_24h:,.2f}
+24小时价格位置: {price_position_24h:.1f}% (相对24小时区间)
+24小时振幅: {amplitude_24h:.2f}%
 成交量: {volume:,.0f}
 ATR波动率: {atr_pct:.2f}%
 
@@ -64,7 +79,7 @@ RSI: {rsi:.1f} ({rsi_status})
 
 【分析要求】
 1. 结合价格位置和技术指标
-2. 考虑波动率影响
+2. 考虑24小时价格区间和振幅
 3. 提供明确交易信号
 
 请以JSON格式回复：
