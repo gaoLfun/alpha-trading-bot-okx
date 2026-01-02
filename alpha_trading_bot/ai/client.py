@@ -462,6 +462,31 @@ MACD: {macd}
         if daily_high > daily_low:
             price_position = ((price - daily_low) / (daily_high - daily_low)) * 100
 
+        # 24小时价格区间数据
+        high_24h = daily_high  # 24小时最高价
+        low_24h = daily_low    # 24小时最低价
+        range_24h = high_24h - low_24h  # 24小时价格区间
+        amplitude_24h = (range_24h / price * 100) if price > 0 else 0  # 24小时振幅百分比
+
+        # 7日价格区间数据
+        high_7d = float(market_data.get('high_7d', high_24h))  # 7日最高价，回退到24小时
+        low_7d = float(market_data.get('low_7d', low_24h))     # 7日最低价，回退到24小时
+        range_7d = high_7d - low_7d  # 7日价格区间
+        amplitude_7d = (range_7d / price * 100) if price > 0 else 0  # 7日振幅百分比
+
+        # 24小时价格位置因子
+        price_position_24h = 50  # 默认中位
+        if high_24h > low_24h:
+            price_position_24h = ((price - low_24h) / (high_24h - low_24h)) * 100
+
+        # 7日价格位置因子
+        price_position_7d = 50  # 默认中位
+        if high_7d > low_7d:
+            price_position_7d = ((price - low_7d) / (high_7d - low_7d)) * 100
+
+        # 综合价格位置（优化权重：24小时55% + 7日45%）
+        composite_price_position = (price_position_24h * 0.55) + (price_position_7d * 0.45)
+
         # 计算价格变化
         price_change_pct = float(market_data.get('price_change_pct', 0))
 
