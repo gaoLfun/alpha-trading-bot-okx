@@ -360,6 +360,20 @@ class TradingBot(BaseComponent):
                         price_position = (current_price - low) / (high - low) * 100
                         self.enhanced_logger.logger.info(f"  📍 当前价格在24h区间位置: {price_position:.1f}%")
 
+                # 显示7天价格区间
+                if 'high_7d' in market_data and 'low_7d' in market_data:
+                    high_7d = market_data.get('high_7d', 0)
+                    low_7d = market_data.get('low_7d', 0)
+                    self.enhanced_logger.logger.info(f"📈 7天价格区间:")
+                    self.enhanced_logger.logger.info(f"  🔺 最高价: ${high_7d:,.2f}")
+                    self.enhanced_logger.logger.info(f"  🔻 最低价: ${low_7d:,.2f}")
+                    self.enhanced_logger.logger.info(f"  📊 价格区间: ${high_7d - low_7d:,.2f}")
+
+                    # 计算当前价格在7天区间中的位置
+                    if high_7d > low_7d:
+                        price_position_7d = (current_price - low_7d) / (high_7d - low_7d) * 100
+                        self.enhanced_logger.logger.info(f"  📍 当前价格在7天区间位置: {price_position_7d:.1f}%")
+
                 # 输出详细的成交量信息
                 volume_24h = market_data.get('volume', 0)
                 avg_volume_24h = market_data.get('avg_volume_24h', 0)
@@ -611,7 +625,7 @@ class TradingBot(BaseComponent):
             current_price = market_data.get('price', 0)
             # 获取账户余额用于动态计算交易数量
             balance = await self.trading_engine.get_balance()
-            risk_assessment = await self.risk_manager.assess_risk(signals, current_price, balance)
+            risk_assessment = await self.risk_manager.assess_risk(signals, current_price, balance, market_data)
             risk_level = risk_assessment.get('risk_level', 'unknown')
             risk_score = risk_assessment.get('risk_score', 0)
             trades = risk_assessment.get('trades', [])  # 确保trades变量被定义

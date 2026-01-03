@@ -206,7 +206,10 @@ class TradingEngine(BaseComponent):
                     'volumes': volumes,
                     'period': '15m',
                     'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
-                    'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else ''
+                    'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else '',
+                    # 7日价格区间数据（测试模式使用估算值）
+                    'high_7d': current_price * 1.05,  # 测试模式下7日最高价估算
+                    'low_7d': current_price * 0.95    # 测试模式下7日最低价估算
                 }
 
                 # 保存市场数据快照
@@ -313,12 +316,15 @@ class TradingEngine(BaseComponent):
                         high_7d = max(candle[2] for candle in recent_7d)  # 7日最高价
                         low_7d = min(candle[3] for candle in recent_7d)   # 7日最低价
                         logger.info(f"📊 7日价格区间: ${low_7d:,.2f} - ${high_7d:,.2f}")
+                        logger.debug(f"[DEBUG] 7日数据已计算 - high_7d: ${high_7d:,.2f}, low_7d: ${low_7d:,.2f}")
                     else:
                         error_msg = str(ohlcv_1d) if isinstance(ohlcv_1d, Exception) else "数据不足"
                         logger.warning(f"日线K线数据获取失败: {error_msg}")
                         # 使用估算值
                         high_7d = float(ticker.high) if ticker.high else current_price * 1.05
                         low_7d = float(ticker.low) if ticker.low else current_price * 0.95
+                        logger.warning(f"使用估算值作为7日价格区间: ${low_7d:,.2f} - ${high_7d:,.2f}")
+                        logger.debug(f"[DEBUG] 7日数据使用估算值 - high_7d: ${high_7d:,.2f}, low_7d: ${low_7d:,.2f}")
 
                 except Exception as e:
                     logger.warning(f"并行获取OHLCV数据失败: {type(e).__name__}: {e}，将使用基础数据")

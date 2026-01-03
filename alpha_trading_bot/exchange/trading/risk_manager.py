@@ -51,7 +51,7 @@ class RiskManager(BaseComponent):
         """清理资源"""
         pass
 
-    async def assess_risk(self, signals: list, current_price: float = 0, balance: Any = None) -> Dict[str, Any]:
+    async def assess_risk(self, signals: list, current_price: float = 0, balance: Any = None, market_data: Dict[str, Any] = None) -> Dict[str, Any]:
         """评估交易风险（兼容策略管理器调用的接口）"""
         # 存储余额信息供后续使用
         self._current_balance = balance
@@ -114,7 +114,11 @@ class RiskManager(BaseComponent):
                     logger.debug(f"[风险评估调试] 全HOLD信号，不增加风险分数")
 
             # 新增：价格位置风险评估
-            composite_position = self._get_composite_price_position(signals, market_data)
+            if market_data is not None:
+                composite_position = self._get_composite_price_position(signals, market_data)
+            else:
+                composite_position = None
+
             if composite_position is not None:
                 # 获取价格位置级别
                 from ...ai.price_position_scaler import PricePositionScaler
