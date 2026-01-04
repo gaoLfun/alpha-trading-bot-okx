@@ -111,12 +111,16 @@ class AIClient:
                         f"volume: {type(market_data.get('volume'))}")
 
             # 构建提示词 - 根据提供商选择不同的prompt策略
+            composite_price_position = 50.0  # 默认价格位置
             if provider in ['kimi', 'deepseek']:
                 # 对于高级提供商，使用增强的prompt
-                prompt = self._build_enhanced_prompt(provider, market_data)
+                prompt, composite_price_position = self._build_enhanced_prompt(provider, market_data)
             else:
                 # 其他提供商使用标准prompt
                 prompt = self._build_trading_prompt(market_data)
+
+            # 将综合价格位置添加到市场数据中，供后续使用
+            market_data['composite_price_position'] = composite_price_position
 
             # 根据提供商调用不同的API
             if provider == 'kimi':
@@ -448,7 +452,7 @@ MACD: {macd}
 
         return prompt
 
-    def _build_enhanced_prompt(self, provider: str, market_data: Dict[str, Any]) -> str:
+    def _build_enhanced_prompt(self, provider: str, market_data: Dict[str, Any]) -> tuple[str, float]:
         """构建增强的AI提示词 - 参考alpha-pilot-bot的先进设计"""
 
         # 基础市场数据
@@ -725,7 +729,7 @@ MACD: {macd}
     "risk": "风险提示和止损建议"
 }}"""
 
-        return prompt
+        return prompt, composite_price_position
 
     async def _call_kimi(self, api_key: str, prompt: str, market_data: Dict[str, Any]) -> Dict[str, Any]:
         """调用Kimi API"""
@@ -761,7 +765,7 @@ MACD: {macd}
                 content = result['choices'][0]['message']['content']
 
                 # 解析JSON响应
-                return self._parse_ai_response(content, 'kimi')
+                return self._parse_ai_response(content, 'kimi', market_data.get('composite_price_position', 50.0))
 
         except asyncio.TimeoutError:
             raise NetworkError("Kimi API请求超时")
@@ -804,7 +808,7 @@ MACD: {macd}
                 result = await response.json()
                 content = result['choices'][0]['message']['content']
 
-                return self._parse_ai_response(content, 'deepseek')
+                return self._parse_ai_response(content, 'deepseek', market_data.get('composite_price_position', 50.0))
 
         except asyncio.TimeoutError:
             raise NetworkError("DeepSeek API请求超时")
@@ -852,7 +856,7 @@ MACD: {macd}
                 message = result['output']['choices'][0]['message']
                 content = message.get('content', '')
 
-                return self._parse_ai_response(content, 'qwen')
+                return self._parse_ai_response(content, 'qwen', market_data.get('composite_price_position', 50.0))
 
         except asyncio.TimeoutError:
             raise NetworkError("Qwen API请求超时")
@@ -892,14 +896,14 @@ MACD: {macd}
                 result = await response.json()
                 content = result['choices'][0]['message']['content']
 
-                return self._parse_ai_response(content, 'openai')
+                return self._parse_ai_response(content, 'openai', market_data.get('composite_price_position', 50.0))
 
         except asyncio.TimeoutError:
             raise NetworkError("OpenAI API请求超时")
         except Exception as e:
             raise NetworkError(f"OpenAI API调用失败: {e}")
 
-    def _parse_ai_response(self, content: str, provider: str) -> Dict[str, Any]:
+    def _parse_ai_response(self, content: str, provider: str, composite_price_position: float = 50.0) -> Dict[str, Any]:
         """解析AI响应"""
         try:
             # 尝试提取JSON
@@ -932,7 +936,8 @@ MACD: {macd}
                     'holding_time': holding_time,
                     'timestamp': datetime.now().isoformat(),
                     'provider': provider,
-                    'raw_response': content
+                    'raw_response': content,
+                    'composite_price_position': composite_price_position
                 }
             else:
                 # 如果没有JSON，尝试解析文本
@@ -954,7 +959,8 @@ MACD: {macd}
                     'holding_time': '15分钟',
                     'timestamp': datetime.now().isoformat(),
                     'provider': provider,
-                    'raw_response': content
+                    'raw_response': content,
+                    'composite_price_position': composite_price_position
                 }
 
         except Exception as e:
@@ -966,5 +972,6 @@ MACD: {macd}
                 'holding_time': '15分钟',
                 'timestamp': datetime.now().isoformat(),
                 'provider': provider,
-                'raw_response': content
+                'raw_response': content,
+                'composite_price_position': composite_price_position
             }

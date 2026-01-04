@@ -361,6 +361,7 @@ class TradingBot(BaseComponent):
                         self.enhanced_logger.logger.info(f"  📍 当前价格在24h区间位置: {price_position:.1f}%")
 
                 # 显示7天价格区间
+                self.enhanced_logger.logger.info(f"📊 市场数据检查 - high_7d: {'high_7d' in market_data}, low_7d: {'low_7d' in market_data}")
                 if 'high_7d' in market_data and 'low_7d' in market_data:
                     high_7d = market_data.get('high_7d', 0)
                     low_7d = market_data.get('low_7d', 0)
@@ -373,6 +374,9 @@ class TradingBot(BaseComponent):
                     if high_7d > low_7d:
                         price_position_7d = (current_price - low_7d) / (high_7d - low_7d) * 100
                         self.enhanced_logger.logger.info(f"  📍 当前价格在7天区间位置: {price_position_7d:.1f}%")
+                else:
+                    # 调试信息
+                    self.enhanced_logger.logger.info(f"⚠️ 7天价格数据缺失 - high_7d: {'high_7d' in market_data}, low_7d: {'low_7d' in market_data}")
 
                 # 输出详细的成交量信息
                 volume_24h = market_data.get('volume', 0)
