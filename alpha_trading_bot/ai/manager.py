@@ -805,7 +805,9 @@ class AIManager(BaseComponent):
             dynamic_signal_tier.record_signal(signal_id, signal, tier_name)
 
             # 记录交易数据用于自学习（如果是真实交易）
-            if not self.config.test_mode and signal.get('signal') == 'BUY':
+            from ..config import load_config
+            config = load_config()
+            if not config.trading.test_mode and signal.get('signal') == 'BUY':
                 self._record_trade_for_learning(signal, market_data)
 
             return signal
@@ -976,7 +978,9 @@ async def cleanup_ai_manager() -> None:
             dynamic_signal_tier.record_signal(signal_id, signal, tier_name)
 
             # 记录交易数据用于自学习（如果是真实交易）
-            if not self.config.test_mode and signal.get('signal') == 'BUY':
+            from ..config import load_config
+            config = load_config()
+            if not config.trading.test_mode and signal.get('signal') == 'BUY':
                 self._record_trade_for_learning(signal, market_data)
 
             return signal
