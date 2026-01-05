@@ -927,8 +927,8 @@ async def cleanup_ai_manager() -> None:
         try:
             from .price_position_scaler import PricePositionScaler
 
-            # 获取综合价格位置
-            composite_position = market_data.get('composite_price_position', 50.0)
+            # 获取综合价格位置 - 优先从signal中获取，其次从market_data获取
+            composite_position = signal.get('composite_price_position', market_data.get('composite_price_position', 50.0))
 
             # 创建缩放器
             scaler = PricePositionScaler()
