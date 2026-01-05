@@ -233,13 +233,7 @@ class TradingBot(BaseComponent):
                 cycle_count += 1
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                # 使用增强型日志记录器记录交易周期开始
-                self.enhanced_logger.info_cycle_start(cycle_count, current_time)
-
-                # 执行一次交易循环
-                await self._trading_cycle(cycle_count)
-
-                # 计算等待到下一个周期的时间（使用配置中的周期 + 随机偏移）
+                # 计算下次执行时间（在交易循环之前）
                 now = datetime.now()
                 cycle_minutes = self.config.cycle_interval  # 从配置读取周期（默认15分钟）
 
@@ -278,6 +272,9 @@ class TradingBot(BaseComponent):
                     self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为正向偏移 {new_offset}秒")
                     # 不保存这个调整后的偏移，下次重新生成随机偏移
 
+                # 存储下次执行时间供周期完成日志使用
+                self._next_execution_time = next_execution_time
+
                 # 记录周期和随机偏移信息
                 offset_minutes = random_offset / 60
                 offset_range_minutes = offset_range / 60
@@ -287,6 +284,12 @@ class TradingBot(BaseComponent):
                 wait_seconds = (next_execution_time - now).total_seconds()
                 if wait_seconds < 0:
                     wait_seconds += 86400
+
+                # 使用增强型日志记录器记录交易周期开始
+                self.enhanced_logger.info_cycle_start(cycle_count, current_time)
+
+                # 执行一次交易循环
+                await self._trading_cycle(cycle_count)
 
                 # 记录等待信息
                 wait_minutes = wait_seconds / 60
