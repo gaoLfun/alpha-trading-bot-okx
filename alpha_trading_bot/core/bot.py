@@ -35,6 +35,7 @@ class TradingBot(BaseComponent):
         self._running = False
         self._start_time = None
         self._last_random_offset = 0  # 存储上一次使用的随机偏移
+        self._next_execution_time = None  # 存储下次执行时间
 
     @property
     def enhanced_logger(self):
@@ -293,6 +294,9 @@ class TradingBot(BaseComponent):
                     self.enhanced_logger.logger.info(f"⏰ 等待 {wait_seconds:.0f} 秒 ({wait_minutes:.1f} 分钟) 到下一个周期执行...")
                 else:
                     self.enhanced_logger.logger.info(f"⏰ 等待 {wait_seconds:.0f} 秒 ({wait_minutes:.1f} 分钟) 到下一个{cycle_minutes}分钟整点执行...")
+
+                # 存储下次执行时间供周期完成日志使用
+                self._next_execution_time = next_execution_time
 
                 # 等待到下一个整点
                 await asyncio.sleep(wait_seconds)
@@ -795,69 +799,27 @@ class TradingBot(BaseComponent):
             # 记录周期完成信息
             execution_time = time.time() - start_time
 
-            # 计算下次执行时间（下一个周期整点 + 随机偏移）
-            now = datetime.now()
+            # 获取下次执行时间（从主循环存储的变量）
+            next_exec_time = self._next_execution_time
+            if next_exec_time:
+                next_exec_time_str = next_exec_time.strftime("%Y-%m-%d %H:%M:%S")
+                # 计算等待时间
+                now = datetime.now()
+                wait_seconds = (next_exec_time - now).total_seconds()
+                if wait_seconds < 0:
+                    wait_seconds += 86400  # 如果跨越午夜，加24小时
 
-            # 从配置读取周期（默认15分钟）
-            cycle_minutes = self.config.cycle_interval
-            next_minute = ((now.minute // cycle_minutes) + 1) * cycle_minutes
-            if next_minute >= 60:
-                next_minute = next_minute % 60
-                next_hour = now.hour + 1  # 小时增加1
-                if next_hour >= 24:
-                    next_hour = next_hour % 24
+                wait_minutes = int(wait_seconds // 60)
+                wait_seconds_remainder = int(wait_seconds % 60)
+                wait_time = f"{wait_minutes}分{wait_seconds_remainder}秒"
             else:
-                next_hour = now.hour
-
-            # 基础执行时间（周期整点）
-            base_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
-
-            # 根据配置决定是否添加随机时间偏移
-            offset_adjusted = False  # 标记是否调整了偏移量
-            if self.config.random_offset_enabled:
-                # 添加随机时间偏移（使用配置的偏移范围）
-                offset_range = self.config.random_offset_range  # 默认±180秒（±3分钟）
-                random_offset = random.randint(-offset_range, offset_range)
-                next_execution_time = base_execution_time + timedelta(seconds=random_offset)
-
-                # 优化：确保不会在过去时间执行 - 使用更智能的调整策略
-                if next_execution_time <= now:
-                    # 计算需要的最小正向偏移
-                    min_positive_offset = max(30, int((now - base_execution_time).total_seconds()) + 30)
-                    # 生成新的正向偏移，确保在未来执行
-                    new_offset = random.randint(min_positive_offset, min_positive_offset + offset_range)
-                    next_execution_time = base_execution_time + timedelta(seconds=new_offset)
-                    random_offset = new_offset  # 更新随机偏移值
-                    offset_adjusted = True  # 标记已调整
-                    self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为正向偏移 {new_offset}秒")
-            else:
-                # 不启用随机偏移，直接使用基准时间
-                random_offset = 0
-                next_execution_time = base_execution_time
-
-            # 记录随机偏移信息（周期完成后）
-            if self.config.random_offset_enabled:
-                offset_minutes = random_offset / 60
-                self.enhanced_logger.logger.info(f"⏰ 周期完成 - 下次执行偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{self.config.random_offset_range/60:.0f}分钟，周期: {cycle_minutes}分钟)")
-                # 仅当偏移未被调整时才保存，避免保存因时间修正产生的大偏移
-                if not offset_adjusted:
-                    self._last_random_offset = random_offset
-            else:
-                self.enhanced_logger.logger.info(f"⏰ 下次执行时间: {next_execution_time.strftime('%Y-%m-%d %H:%M:%S')} (无随机偏移，周期: {cycle_minutes}分钟)")
-
-            # 计算等待时间
-            wait_seconds = (next_execution_time - now).total_seconds()
-            if wait_seconds < 0:
-                wait_seconds += 86400  # 如果跨越午夜，加24小时
-
-            wait_minutes = int(wait_seconds // 60)
-            wait_seconds_remainder = int(wait_seconds % 60)
-            wait_time = f"{wait_minutes}分{wait_seconds_remainder}秒"
+                next_exec_time_str = "未知"
+                wait_time = "未知"
 
             # 记录周期完成
             self.enhanced_logger.info_cycle_complete(
                 cycle_num, execution_time, total_signals, executed_trades,
-                next_execution_time.strftime("%Y-%m-%d %H:%M:%S"), wait_time
+                next_exec_time_str, wait_time
             )
 
         except Exception as e:
