@@ -275,6 +275,11 @@ class TradingBot(BaseComponent):
                 # 存储下次执行时间供周期完成日志使用
                 self._next_execution_time = next_execution_time
 
+                # 保存随机偏移供下次使用（确保自然偏移被保存，而非调整后的偏移）
+                if self.config.random_offset_enabled and next_execution_time > now:
+                    # 只有自然生成的偏移才保存，不保存因时间修正产生的偏移
+                    self._last_random_offset = random_offset
+
                 # 记录周期和随机偏移信息
                 offset_minutes = random_offset / 60
                 offset_range_minutes = offset_range / 60
@@ -815,6 +820,25 @@ class TradingBot(BaseComponent):
                 wait_minutes = int(wait_seconds // 60)
                 wait_seconds_remainder = int(wait_seconds % 60)
                 wait_time = f"{wait_minutes}分{wait_seconds_remainder}秒"
+
+                # 记录周期完成和偏移信息
+                if self.config.random_offset_enabled:
+                    # 计算当前偏移（相对于15分钟整点）
+                    current_minute = now.minute
+                    cycle_minutes = self.config.cycle_interval
+                    current_base_minute = (current_minute // cycle_minutes) * cycle_minutes
+                    next_base_minute = current_base_minute + cycle_minutes
+                    if next_base_minute >= 60:
+                        next_base_minute = 0
+
+                    base_time = now.replace(minute=next_base_minute, second=0, microsecond=0)
+                    if next_base_minute == 0:
+                        base_time = base_time.replace(hour=(now.hour + 1) % 24)
+
+                    offset_seconds = (next_exec_time - base_time).total_seconds()
+                    offset_minutes = offset_seconds / 60
+
+                    self.enhanced_logger.logger.info(f"⏰ 周期完成 - 下次执行偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{self.config.random_offset_range/60:.0f}分钟，周期: {cycle_minutes}分钟)")
             else:
                 next_exec_time_str = "未知"
                 wait_time = "未知"
