@@ -687,13 +687,14 @@ class AIManager(BaseComponent):
             from ..strategies.low_price_strategy import LowPriceStrategy
 
             # 获取当前市场条件用于自学习优化
-            current_market = {
-                'trend_strength': market_data.get('trend_strength', 0.0),
-                'volatility': market_data.get('volatility', 0.0),
-                'volume_ratio': market_data.get('volume_ratio', 1.0),
-                'price_position': market_data.get('composite_price_position', 50.0),
-                'market_state': self._determine_market_state(market_data)
-            }
+            from .self_learning_optimizer import MarketCondition
+            current_market = MarketCondition(
+                trend_strength=market_data.get('trend_strength', 0.0),
+                volatility=market_data.get('volatility', 0.0),
+                volume_ratio=market_data.get('volume_ratio', 1.0),
+                price_position=market_data.get('composite_price_position', 50.0),
+                market_state=self._determine_market_state(market_data)
+            )
 
             # 获取自学习优化的参数
             optimal_params = self_learning_optimizer.get_optimal_parameters(current_market)
