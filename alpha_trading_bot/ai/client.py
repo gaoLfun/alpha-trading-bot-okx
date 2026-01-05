@@ -7,12 +7,75 @@ import aiohttp
 import json
 import time
 import logging
+import random
 from typing import Dict, Any, Optional
 from datetime import datetime
 
 from ..core.exceptions import AIProviderError, NetworkError, RateLimitError
 
 logger = logging.getLogger(__name__)
+
+def api_retry(provider_name: str, timeout_config: dict):
+    """API重试装饰器 - 统一的退避策略"""
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            max_retries = timeout_config['max_retries']
+            base_delay = timeout_config['retry_base_delay']
+
+            for attempt in range(max_retries):
+                try:
+                    # 动态调整超时时间
+                    current_timeout = timeout_config['total_timeout'] * (1 + attempt * 0.2)
+
+                    # 创建新的market_data副本，更新超时时间
+                    if 'market_data' in kwargs:
+                        kwargs['timeout_override'] = current_timeout
+
+                    return await func(*args, **kwargs)
+
+                except RateLimitError as e:
+                    # 速率限制 - 指数退避
+                    wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"{provider_name} API速率限制，{wait_time:.1f}秒后重试 (第{attempt + 1}次)")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        raise
+
+                except asyncio.TimeoutError as e:
+                    # 超时 - 指数退避
+                    wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(f"{provider_name} API请求超时，{wait_time:.1f}秒后重试 (第{attempt + 1}次)")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        raise NetworkError(f"{provider_name} API请求超时，已重试多次")
+
+                except NetworkError as e:
+                    # 网络错误 - 线性退避
+                    wait_time = base_delay * (attempt + 1) + random.uniform(0, 0.5)
+                    logger.warning(f"{provider_name} API网络错误，{wait_time:.1f}秒后重试 (第{attempt + 1}次)")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        raise
+
+                except Exception as e:
+                    # 其他异常 - 线性退避
+                    wait_time = base_delay * (attempt + 1) + random.uniform(0, 0.5)
+                    logger.warning(f"{provider_name} API调用失败: {str(e)[:100]}，{wait_time:.1f}秒后重试 (第{attempt + 1}次)")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        raise NetworkError(f"{provider_name} API调用失败: {str(e)}")
+
+            return None
+        return wrapper
+    return decorator
 
 class AIClient:
     """AI客户端 - 支持多个AI提供商"""
@@ -731,10 +794,31 @@ MACD: {macd}
 
         return prompt, composite_price_position
 
-    async def _call_kimi(self, api_key: str, prompt: str, market_data: Dict[str, Any]) -> Dict[str, Any]:
-        """调用Kimi API"""
+    async def _call_kimi_with_retry(self, api_key: str, prompt: str, market_data: Dict[str, Any], attempt: int = 0) -> Dict[str, Any]:
+        """Kimi API调用 - 带重试逻辑"""
         timeout_config = self.timeout_config['kimi']
+        max_retries = timeout_config['max_retries']
+        base_delay = timeout_config['retry_base_delay']
 
+        try:
+            # 动态超时时间 - 随重试次数增加
+            current_timeout = timeout_config['total_timeout'] * (1 + attempt * 0.2)
+
+            result = await self._call_kimi_impl(api_key, prompt, market_data, current_timeout)
+            return result
+
+        except (RateLimitError, asyncio.TimeoutError, NetworkError) as e:
+            if attempt < max_retries - 1:
+                # 指数退避策略
+                wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(f"Kimi API调用失败: {str(e)[:50]}，{wait_time:.1f}秒后重试 (第{attempt + 2}次)")
+                await asyncio.sleep(wait_time)
+                return await self._call_kimi_with_retry(api_key, prompt, market_data, attempt + 1)
+            else:
+                raise NetworkError(f"Kimi API调用失败，已重试{max_retries}次: {str(e)}")
+
+    async def _call_kimi_impl(self, api_key: str, prompt: str, market_data: Dict[str, Any], timeout: float) -> Dict[str, Any]:
+        """Kimi API实际调用实现"""
         headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'
@@ -745,32 +829,29 @@ MACD: {macd}
             'messages': [
                 {'role': 'user', 'content': prompt}
             ],
-            'temperature': 0.2,  # 降低随机性，提高交易决策的一致性
-            'max_tokens': 800  # 增加输出空间，支持更详细的市场分析
+            'temperature': 0.2,
+            'max_tokens': 800
         }
 
-        try:
-            async with self.session.post(
-                'https://api.moonshot.cn/v1/chat/completions',
-                headers=headers,
-                json=data,
-                timeout=aiohttp.ClientTimeout(total=timeout_config['total_timeout'])
-            ) as response:
-                if response.status == 429:
-                    raise RateLimitError("Kimi API速率限制")
-                elif response.status != 200:
-                    raise NetworkError(f"Kimi API错误: {response.status}")
+        async with self.session.post(
+            'https://api.moonshot.cn/v1/chat/completions',
+            headers=headers,
+            json=data,
+            timeout=aiohttp.ClientTimeout(total=timeout)
+        ) as response:
+            if response.status == 429:
+                raise RateLimitError("Kimi API速率限制")
+            elif response.status != 200:
+                raise NetworkError(f"Kimi API错误: {response.status}")
 
-                result = await response.json()
-                content = result['choices'][0]['message']['content']
+            result = await response.json()
+            content = result['choices'][0]['message']['content']
 
-                # 解析JSON响应
-                return self._parse_ai_response(content, 'kimi', market_data.get('composite_price_position', 50.0))
+            return self._parse_ai_response(content, 'kimi', market_data.get('composite_price_position', 50.0))
 
-        except asyncio.TimeoutError:
-            raise NetworkError("Kimi API请求超时")
-        except Exception as e:
-            raise NetworkError(f"Kimi API调用失败: {e}")
+    async def _call_kimi(self, api_key: str, prompt: str, market_data: Dict[str, Any]) -> Dict[str, Any]:
+        """调用Kimi API - 带增强重试机制"""
+        return await self._call_kimi_with_retry(api_key, prompt, market_data)
 
     async def _call_deepseek(self, api_key: str, prompt: str, market_data: Dict[str, Any]) -> Dict[str, Any]:
         """调用DeepSeek API"""

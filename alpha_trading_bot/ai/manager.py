@@ -313,7 +313,10 @@ class AIManager(BaseComponent):
                                 signal = scaled_signal
                                 confidence = signal.get('confidence', confidence)
 
-                        if confidence >= self.config.min_confidence:
+                        # 动态置信度阈值调整 - 基于价格位置
+                        dynamic_threshold = await self._calculate_dynamic_confidence_threshold(market_data)
+
+                        if confidence >= dynamic_threshold:
                             signal['provider'] = provider
                             results.append(signal)
                             success_count += 1
@@ -416,6 +419,53 @@ class AIManager(BaseComponent):
         except Exception as e:
             logger.error(f"生成多AI信号失败: {e}")
             return await self._generate_fallback_signals(market_data)
+
+    async def _calculate_dynamic_confidence_threshold(self, market_data: Dict[str, Any]) -> float:
+        """计算动态置信度阈值 - 基于价格位置调整
+
+        逻辑：
+        - 价格位置越高，置信度阈值越低（更容易通过）
+        - 价格位置越低，置信度阈值越高（更严格）
+        - 在极高位时适当放宽，避免过度过滤信号
+        """
+        try:
+            # 获取综合价格位置
+            composite_position = market_data.get('composite_price_position', 50.0)
+
+            # 基础阈值
+            base_threshold = self.config.min_confidence
+
+            # 价格位置因子 - 高位时降低阈值
+            if composite_position >= 85:  # 极高位
+                # 极高位时适当放宽，避免过滤掉所有信号
+                position_factor = 0.7
+            elif composite_position >= 75:  # 高位
+                position_factor = 0.8
+            elif composite_position >= 65:  # 偏高
+                position_factor = 0.9
+            elif composite_position <= 15:  # 极低位
+                # 极低位时保持严格，避免虚假信号
+                position_factor = 1.0
+            elif composite_position <= 25:  # 低位
+                position_factor = 0.95
+            elif composite_position <= 35:  # 偏低
+                position_factor = 0.9
+            else:  # 中性区域
+                position_factor = 1.0
+
+            # 计算动态阈值
+            dynamic_threshold = base_threshold * position_factor
+
+            # 确保阈值在合理范围内
+            dynamic_threshold = max(0.15, min(0.5, dynamic_threshold))  # 15%-50%范围
+
+            logger.debug(f"动态置信度阈值计算: 价格位置={composite_position:.1f}%, 基础阈值={base_threshold}, 动态阈值={dynamic_threshold:.2f}")
+
+            return dynamic_threshold
+
+        except Exception as e:
+            logger.error(f"计算动态置信度阈值失败: {e}")
+            return self.config.min_confidence  # 回退到基础阈值
 
     async def _generate_fallback_signals(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """生成回退信号"""
@@ -620,7 +670,7 @@ class AIManager(BaseComponent):
 
     async def _apply_price_position_scaling(self, signal: Dict[str, Any],
                                           market_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """应用价格位置因子缩放
+        """应用价格位置因子缩放 - 集成低价格位置策略
 
         Args:
             signal: AI生成的信号
@@ -631,9 +681,16 @@ class AIManager(BaseComponent):
         """
         try:
             from .price_position_scaler import PricePositionScaler
+            from ..strategies.low_price_strategy import LowPriceStrategy
 
             # 获取综合价格位置
             composite_position = market_data.get('composite_price_position', 50.0)
+
+            # 首先应用低价格位置策略（如果适用）
+            if composite_position < 35:  # 低价格位置阈值
+                low_price_strategy = LowPriceStrategy()
+                enhanced_signal = low_price_strategy.enhance_signal_for_low_price(signal, market_data)
+                signal = enhanced_signal
 
             # 创建缩放器
             scaler = PricePositionScaler()

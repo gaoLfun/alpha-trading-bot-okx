@@ -267,10 +267,16 @@ class TradingBot(BaseComponent):
                     random_offset = random.randint(-offset_range, offset_range)
                 next_execution_time = base_execution_time + timedelta(seconds=random_offset)
 
-                # 确保不会在过去时间执行（如果随机偏移为负数且绝对值很大）
+                # 优化：确保不会在过去时间执行 - 使用更智能的调整策略
                 if next_execution_time <= now:
-                    next_execution_time = base_execution_time
-                    self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为基准时间")
+                    # 计算需要的最小正向偏移
+                    min_positive_offset = max(30, int((now - base_execution_time).total_seconds()) + 30)
+                    # 生成新的正向偏移，确保在未来执行
+                    new_offset = random.randint(min_positive_offset, min_positive_offset + offset_range)
+                    next_execution_time = base_execution_time + timedelta(seconds=new_offset)
+                    self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为正向偏移 {new_offset}秒")
+                    # 保存这个正向偏移供下次使用
+                    self._last_random_offset = new_offset
 
                 # 记录周期和随机偏移信息
                 offset_minutes = random_offset / 60
@@ -813,15 +819,20 @@ class TradingBot(BaseComponent):
                 offset_range = self.config.random_offset_range  # 默认±180秒（±3分钟）
                 random_offset = random.randint(-offset_range, offset_range)
                 next_execution_time = base_execution_time + timedelta(seconds=random_offset)
+
+                # 优化：确保不会在过去时间执行 - 使用更智能的调整策略
+                if next_execution_time <= now:
+                    # 计算需要的最小正向偏移
+                    min_positive_offset = max(30, int((now - base_execution_time).total_seconds()) + 30)
+                    # 生成新的正向偏移，确保在未来执行
+                    new_offset = random.randint(min_positive_offset, min_positive_offset + offset_range)
+                    next_execution_time = base_execution_time + timedelta(seconds=new_offset)
+                    random_offset = new_offset  # 更新随机偏移值
+                    self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为正向偏移 {new_offset}秒")
             else:
                 # 不启用随机偏移，直接使用基准时间
                 random_offset = 0
                 next_execution_time = base_execution_time
-
-            # 确保不会在过去时间执行（如果随机偏移为负数且绝对值很大）
-            if next_execution_time <= now:
-                next_execution_time = base_execution_time
-                self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为基准时间")
 
             # 记录随机偏移信息（周期完成后）
             if self.config.random_offset_enabled:

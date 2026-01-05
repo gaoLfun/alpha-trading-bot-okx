@@ -387,13 +387,14 @@ class TechnicalIndicators:
             return [close[0]] * len(close)
 
     @staticmethod
-    def calculate_trend_analysis(close: List[float], periods: List[int] = [10, 20, 50]) -> Dict[str, Any]:
+    def calculate_trend_analysis(close: List[float], periods: List[int] = [10, 20, 50], price_position: float = 50.0) -> Dict[str, Any]:
         """
-        计算趋势分析
+        计算趋势分析 - 集成价格位置权重
 
         Args:
             close: 收盘价列表
             periods: 趋势分析周期列表，默认[10, 20, 50]
+            price_position: 当前价格位置百分比(0-100)，用于调整趋势权重
 
         Returns:
             趋势分析结果字典
@@ -406,6 +407,27 @@ class TechnicalIndicators:
                     'trend_consensus': 0.0,
                     'trend_details': {}
                 }
+
+            trend_scores = {}
+            current_price = close[-1]
+
+            # 价格位置权重因子 - 平衡趋势和价格位置
+            # 高位时降低趋势权重，避免在高位过度追涨
+            # 低位时保持趋势权重，不错过低位机会
+            if price_position >= 90:  # 极高位
+                price_weight_factor = 0.6  # 大幅降低趋势权重
+            elif price_position >= 80:  # 高位
+                price_weight_factor = 0.7
+            elif price_position >= 70:  # 偏高
+                price_weight_factor = 0.8
+            elif price_position <= 10:  # 极低位
+                price_weight_factor = 1.2  # 增加趋势权重，积极捕捉低位机会
+            elif price_position <= 20:  # 低位
+                price_weight_factor = 1.1
+            elif price_position <= 30:  # 偏低
+                price_weight_factor = 1.05
+            else:  # 中性区域
+                price_weight_factor = 1.0
 
             trend_scores = {}
             current_price = close[-1]
@@ -478,26 +500,33 @@ class TechnicalIndicators:
                 trend_values = list(trend_scores.values())
                 trend_consensus = np.mean(trend_values)
 
-                # 确定总体趋势方向（优化阈值 - 避免过度敏感）
-                if trend_consensus > 0.25:  # 提高阈值到0.25
+                # 应用价格位置权重到趋势共识
+                adjusted_consensus = trend_consensus * price_weight_factor
+
+                # 确定总体趋势方向（基于调整后的共识）
+                if adjusted_consensus > 0.25:  # 强上涨趋势
                     overall_trend = 'strong_uptrend'
-                elif trend_consensus > 0.08:   # 提高阈值到0.08
+                elif adjusted_consensus > 0.08:   # 中等上涨趋势
                     overall_trend = 'uptrend'
-                elif trend_consensus < -0.25: # 提高阈值到-0.25
+                elif adjusted_consensus < -0.25: # 强下跌趋势
                     overall_trend = 'strong_downtrend'
-                elif trend_consensus < -0.08:  # 提高阈值到-0.08
+                elif adjusted_consensus < -0.08:  # 中等下跌趋势
                     overall_trend = 'downtrend'
                 else:
                     overall_trend = 'neutral'
 
-                # 计算趋势强度（基于共识度和时间框架一致性，降低放大系数）
-                trend_strength = min(abs(trend_consensus) * 1.2, 0.9)  # 从1.5降至1.2，上限从1.0降至0.9
+                # 计算调整后的趋势强度
+                trend_strength = min(abs(adjusted_consensus) * 1.2, 0.9)
 
                 # 如果时间框架之间分歧很大，降低强度
                 if len(trend_values) > 1:
                     max_diff = max(trend_values) - min(trend_values)
                     if max_diff > 1.0:  # 分歧很大
                         trend_strength *= 0.5
+
+                # 记录价格位置对趋势的影响
+                if price_weight_factor != 1.0:
+                    logger.debug(f"趋势分析：价格位置权重因子={price_weight_factor}, 原始共识={trend_consensus:.3f}, 调整后共识={adjusted_consensus:.3f}")
 
                 return {
                     'overall_trend': overall_trend,
@@ -595,9 +624,11 @@ class TechnicalIndicators:
                 volatility_30d = np.std(returns[-30:]) * np.sqrt(365) if len(returns) >= 30 else np.std(returns) * np.sqrt(365)
                 result['volatility_30d'] = volatility_30d
 
-            # 趋势分析
+            # 趋势分析 - 集成价格位置权重
             if len(close) >= 50:
-                trend_data = TechnicalIndicators.calculate_trend_analysis(close, [10, 20, 50])
+                # 获取综合价格位置（如果之前已计算）或使用默认值
+                composite_position = result.get('price_position', 0.5) * 100  # 转换为0-100范围
+                trend_data = TechnicalIndicators.calculate_trend_analysis(close, [10, 20, 50], composite_position)
                 result['trend_analysis'] = trend_data
 
             return result
