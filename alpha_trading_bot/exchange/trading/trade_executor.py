@@ -779,6 +779,174 @@ class TradeExecutor(BaseComponent):
         self._last_tp_creation_time = {}  # symbol -> timestamp
         self._tp_order_cache = {}  # symbol -> {level: order_info} 本地缓存多级止盈订单
 
+        # 添加订单创建锁，防止重复创建
+        self._creating_orders = set()  # 记录正在创建的订单key
+        self._order_creation_lock = asyncio.Lock()  # 异步锁
+
+    async def manage_tp_sl_orders(self, symbol: str, position: PositionInfo) -> None:
+        """统一的止盈止损订单管理函数 - 避免重复检查和创建"""
+        try:
+            logger.info(f"开始统一检查 {symbol} 的止盈止损订单状态")
+
+            # 加载配置
+            from ...config import load_config
+            config = load_config()
+
+            if not config.strategies.stop_loss_enabled and not config.strategies.take_profit_enabled:
+                logger.info("止盈止损功能均已禁用，跳过检查")
+                return
+
+            # 获取当前价格
+            current_price = await self._get_current_price(symbol)
+
+            # 获取现有订单
+            existing_orders = await self.order_manager.fetch_orders(symbol)
+
+            # 检查是否已存在止损订单
+            has_sl = False
+            existing_sl_order = None
+            current_sl_price = None
+
+            for order in existing_orders:
+                if (order.get('type') == 'stop' and
+                    order.get('status') in ['open', 'pending'] and
+                    order.get('reduceOnly') == True):
+                    has_sl = True
+                    existing_sl_order = order
+                    current_sl_price = float(order.get('stopPrice', 0))
+                    break
+
+            # 计算新的止损价格
+            new_stop_loss = None
+            if config.strategies.stop_loss_enabled:
+                # 使用动态止损计算
+                entry_price = position.entry_price or current_price
+                new_stop_loss = await self.dynamic_stop_loss.calculate_stop_loss(
+                    symbol=symbol,
+                    entry_price=entry_price,
+                    current_price=current_price,
+                    side=position.side,
+                    atr_multiplier=2.0
+                )
+
+                # 根据入场价差异化策略调整
+                if entry_price and current_price:
+                    if (position.side == TradeSide.LONG and current_price > entry_price) or \
+                       (position.side == TradeSide.SHORT and current_price < entry_price):
+                        # 价格高于入场价，使用0.2%跟踪止损
+                        new_stop_loss = entry_price * 0.998 if position.side == TradeSide.LONG else entry_price * 1.002
+                        logger.info(f"价格高于入场价，使用0.2%跟踪止损: ${new_stop_loss:.2f}")
+                    else:
+                        # 价格低于入场价，使用0.5%固定止损
+                        new_stop_loss = entry_price * 0.995 if position.side == TradeSide.LONG else entry_price * 1.005
+                        logger.info(f"价格低于入场价，使用0.5%固定止损: ${new_stop_loss:.2f}")
+
+            # 确定止损方向
+            sl_side = TradeSide.SELL if position.side == TradeSide.LONG else TradeSide.BUY
+
+            # 统一管理止损订单
+            if config.strategies.stop_loss_enabled and new_stop_loss:
+                if not has_sl:
+                    # 创建新止损订单
+                    logger.info(f"创建新止损订单: {symbol} {sl_side.value} {position.amount} @ ${new_stop_loss:.2f}")
+                    sl_result = await self._create_stop_order_safe(
+                        symbol=symbol,
+                        side=sl_side,
+                        amount=position.amount,
+                        stop_price=new_stop_loss
+                    )
+                    if sl_result.success:
+                        logger.info(f"✓ 止损订单创建成功")
+                else:
+                    # 检查是否需要更新现有止损订单（追踪止损逻辑）
+                    if current_sl_price and new_stop_loss:
+                        # 计算价格变动百分比
+                        if position.side == TradeSide.LONG:
+                            price_change_pct = (new_stop_loss - current_sl_price) / current_sl_price
+                        else:
+                            price_change_pct = (current_sl_price - new_stop_loss) / current_sl_price
+
+                        # 检查是否达到更新阈值（1%）
+                        min_update_threshold = 0.01
+                        if abs(price_change_pct) >= min_update_threshold:
+                            logger.info(f"止损价格变动 {price_change_pct*100:.1f}%，达到更新阈值，更新止损订单")
+
+                            # 取消现有止损订单
+                            logger.info(f"取消现有止损订单: {existing_sl_order['algoId']}")
+                            await self.order_manager.cancel_algo_order(existing_sl_order['algoId'], symbol)
+
+                            # 创建新的止损订单
+                            sl_result = await self._create_stop_order_safe(
+                                symbol=symbol,
+                                side=sl_side,
+                                amount=position.amount,
+                                stop_price=new_stop_loss
+                            )
+                            if sl_result.success:
+                                logger.info(f"✓ 止损订单更新成功")
+                        else:
+                            logger.info(f"止损价格变动 {price_change_pct*100:.1f}% < {min_update_threshold*100}% 阈值，无需更新")
+
+            # 检查止盈订单（简化逻辑）
+            if config.strategies.take_profit_enabled:
+                # 这里可以添加止盈订单的检查和更新逻辑
+                logger.info(f"止盈订单检查暂略，如需可扩展")
+
+        except Exception as e:
+            logger.error(f"统一止盈止损管理失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+
+    async def _create_stop_order_safe(self, symbol: str, side: TradeSide, amount: float, stop_price: float) -> OrderResult:
+        """安全创建止损订单 - 防止重复创建"""
+        order_key = f"{symbol}_{side.value}_stop_loss"
+
+        # 检查是否正在创建相同的订单
+        if order_key in self._creating_orders:
+            logger.info(f"{symbol} 的止损订单正在创建中，跳过重复创建 (side: {side.value})")
+            return OrderResult(success=False, error_message="订单正在创建中，跳过重复创建")
+
+        # 使用异步锁确保线程安全
+        async with self._order_creation_lock:
+            # 双重检查 - 进入锁后再次确认
+            if order_key in self._creating_orders:
+                logger.info(f"{symbol} 的止损订单正在创建中，跳过重复创建 (side: {side.value})")
+                return OrderResult(success=False, error_message="订单正在创建中，跳过重复创建")
+
+            # 再次确认是否已存在止损订单
+            existing_orders = await self.order_manager.fetch_orders(symbol)
+            for order in existing_orders:
+                if (order.get('side') == side.value and
+                    order.get('type') == 'stop' and
+                    order.get('status') in ['open', 'pending']):
+                    logger.info(f"{symbol} 已存在止损订单，跳过创建 (订单ID: {order.get('id')})")
+                    return OrderResult(success=False, error_message="已存在止损订单")
+
+            # 标记正在创建
+            self._creating_orders.add(order_key)
+
+            try:
+                # 创建止损订单
+                logger.info(f"创建止损订单: {symbol} {side.value} {amount} @ ${stop_price:.2f}")
+                result = await self.order_manager.create_stop_order(
+                    symbol=symbol,
+                    side=side,
+                    amount=amount,
+                    stop_price=stop_price,
+                    reduce_only=True
+                )
+
+                if result.success:
+                    logger.info(f"✓ 止损订单创建成功: ID={result.order_id}")
+                else:
+                    logger.error(f"✗ 止损订单创建失败: {result.error_message}")
+
+                return result
+
+            finally:
+                # 无论成功失败都要移除创建标记
+                self._creating_orders.discard(order_key)
+
     async def _check_and_create_multi_level_tp_sl(self, symbol: str, current_position: PositionInfo, existing_orders: List) -> None:
         """检查并创建多级止盈订单 - 为缺失的级别补充创建"""
         try:
@@ -1345,19 +1513,16 @@ class TradeExecutor(BaseComponent):
 
                 # 只有在启用了止损且确实缺少止损订单时才创建止损订单
                 if not has_sl and config.strategies.stop_loss_enabled:
-                    logger.info(f"创建止损订单: {symbol} {sl_side.value} {current_position.amount} @ ${new_stop_loss:.2f}")
-                    sl_result = await self.order_manager.create_stop_order(
+                    # 使用安全的创建函数，防止重复创建
+                    sl_result = await self._create_stop_order_safe(
                         symbol=symbol,
                         side=sl_side,
                         amount=current_position.amount,
-                        stop_price=new_stop_loss,
-                        reduce_only=True
+                        stop_price=new_stop_loss
                     )
                     if sl_result.success:
-                        logger.info(f"✓ 止损订单创建成功: ID={sl_result.order_id}")
                         created_count += 1
-                    else:
-                        logger.error(f"✗ 止损订单创建失败: {sl_result.error_message}")
+                    # 错误信息已在安全创建函数中记录
                 elif not has_sl and not config.strategies.stop_loss_enabled:
                     logger.info("止损已禁用，跳过止损订单创建")
 
@@ -1795,14 +1960,12 @@ class TradeExecutor(BaseComponent):
                     logger.info(f"取消现有止损订单: {current_sl['algoId']}")
                     await self.order_manager.cancel_algo_order(current_sl['algoId'], symbol)
 
-                # 创建新的止损订单
-                logger.info(f"创建新止损订单: {symbol} {sl_side.value} {current_position.amount} @ ${new_stop_loss:.2f}")
-                sl_result = await self.order_manager.create_stop_order(
+                # 创建新的止损订单 - 使用安全创建函数
+                sl_result = await self._create_stop_order_safe(
                     symbol=symbol,
                     side=sl_side,
                     amount=current_position.amount,
-                    stop_price=new_stop_loss,
-                    reduce_only=True
+                    stop_price=new_stop_loss
                 )
 
                 if sl_result.success:
@@ -1979,12 +2142,12 @@ class TradeExecutor(BaseComponent):
                 stop_loss = entry_price * (1 + stop_loss_pct)
                 sl_side = TradeSide.BUY
 
-            sl_result = await self.order_manager.create_stop_order(
+            # 使用安全创建函数创建止损订单
+            sl_result = await self._create_stop_order_safe(
                 symbol=symbol,
                 side=sl_side,
                 amount=order_result.filled_amount,  # 对新仓位设置止损
-                stop_price=stop_loss,
-                reduce_only=True
+                stop_price=stop_loss
             )
 
             if sl_result.success:

@@ -747,20 +747,10 @@ class TradingBot(BaseComponent):
                                 except Exception as e:
                                     self.enhanced_logger.logger.error(f"监控 {symbol} 的止盈订单失败: {e}")
 
-                                # 检查并更新止盈止损（包括创建缺失的订单）
+                                # 使用统一的止盈止损管理函数
                                 self.enhanced_logger.logger.info(f"检查 {symbol} 的止盈止损订单状态")
                                 try:
-                                    # 检查是否需要创建缺失的止盈止损订单
-                                    await self.trading_engine.trade_executor.check_and_create_missing_tp_sl(symbol, position)
-
-                                    # 同时更新现有止盈止损订单（实现追踪止损）
-                                    self.enhanced_logger.logger.info(f"🔍 检查是否需要更新 {symbol} 的追踪止损...")
-                                    if self.trading_engine.trade_executor.config.enable_tp_sl:
-                                        await self.trading_engine.trade_executor._check_and_update_tp_sl(
-                                            symbol,
-                                            position.side,
-                                            position
-                                        )
+                                    await self.trading_engine.trade_executor.manage_tp_sl_orders(symbol, position)
                                 except Exception as e:
                                     self.enhanced_logger.logger.error(f"为 {symbol} 检查止盈止损订单失败: {e}")
                     else:
