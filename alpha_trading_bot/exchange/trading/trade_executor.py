@@ -799,22 +799,34 @@ class TradeExecutor(BaseComponent):
             # 获取当前价格
             current_price = await self._get_current_price(symbol)
 
-            # 获取现有订单
-            existing_orders = await self.order_manager.fetch_orders(symbol)
+            # 获取现有算法订单（止盈止损订单）
+            existing_algo_orders = await self.order_manager.fetch_algo_orders(symbol)
+            logger.info(f"检查持仓 {symbol} 的止盈止损订单状态，找到 {len(existing_algo_orders)} 个现有算法订单")
 
             # 检查是否已存在止损订单
             has_sl = False
             existing_sl_order = None
             current_sl_price = None
 
-            for order in existing_orders:
-                if (order.get('type') == 'stop' and
-                    order.get('status') in ['open', 'pending'] and
-                    order.get('reduceOnly') == True):
-                    has_sl = True
-                    existing_sl_order = order
-                    current_sl_price = float(order.get('stopPrice', 0))
-                    break
+            for order in existing_algo_orders:
+                # 根据订单价格相对于当前价格判断是止盈还是止损
+                order_price = float(order.get('price', 0))
+                order_type = order.get('type', '')
+
+                if position.side == TradeSide.LONG:
+                    # 多头：价格低于当前价的是止损
+                    if order_price < current_price and order_type in ['stop', 'stop_loss']:
+                        has_sl = True
+                        existing_sl_order = order
+                        current_sl_price = order_price
+                        break
+                else:
+                    # 空头：价格高于当前价的是止损
+                    if order_price > current_price and order_type in ['stop', 'stop_loss']:
+                        has_sl = True
+                        existing_sl_order = order
+                        current_sl_price = order_price
+                        break
 
             # 计算新的止损价格
             new_stop_loss = None
@@ -913,13 +925,18 @@ class TradeExecutor(BaseComponent):
                 logger.info(f"{symbol} 的止损订单正在创建中，跳过重复创建 (side: {side.value})")
                 return OrderResult(success=False, error_message="订单正在创建中，跳过重复创建")
 
-            # 再次确认是否已存在止损订单
-            existing_orders = await self.order_manager.fetch_orders(symbol)
-            for order in existing_orders:
-                if (order.get('side') == side.value and
-                    order.get('type') == 'stop' and
-                    order.get('status') in ['open', 'pending']):
-                    logger.info(f"{symbol} 已存在止损订单，跳过创建 (订单ID: {order.get('id')})")
+            # 再次确认是否已存在止损订单 - 使用正确的方法
+            existing_algo_orders = await self.order_manager.fetch_algo_orders(symbol)
+            current_price = await self._get_current_price(symbol)
+
+            for order in existing_algo_orders:
+                order_price = float(order.get('price', 0))
+                order_type = order.get('type', '')
+
+                # 根据订单方向和价格判断是否为同类止损订单
+                if ((side == TradeSide.SELL and order_type in ['stop', 'stop_loss'] and order_price < current_price) or
+                    (side == TradeSide.BUY and order_type in ['stop', 'stop_loss'] and order_price > current_price)):
+                    logger.info(f"{symbol} 已存在止损订单，跳过创建 (订单ID: {order.get('algoId')})")
                     return OrderResult(success=False, error_message="已存在止损订单")
 
             # 标记正在创建
