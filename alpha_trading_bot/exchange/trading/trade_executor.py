@@ -10,6 +10,9 @@ from datetime import datetime
 
 from ...core.base import BaseComponent, BaseConfig
 from ..models import TradeResult, OrderResult, TradeSide, TPSLRequest, PositionInfo
+from .dynamic_stop_loss import DynamicStopLoss
+from .dynamic_position_sizing import DynamicPositionSizing
+from .transaction_cost_analyzer import TransactionCostAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,9 @@ class TradeExecutorConfig(BaseConfig):
     use_leverage: bool = True  # 是否使用杠杆（合约交易）
     leverage: int = 10  # 杠杆倍数（用户要求10倍）
     allow_short_selling: bool = False  # 是否允许做空
+    account_tier: str = 'regular'  # 账户等级（影响手续费率）
+    enable_cost_analysis: bool = True  # 启用成本分析
+    min_profit_threshold: float = 0.002  # 最小盈利阈值（0.2%）
 
 class TradeExecutor(BaseComponent):
     """交易执行器"""
@@ -50,6 +56,15 @@ class TradeExecutor(BaseComponent):
         self.position_manager = position_manager
         self.risk_manager = risk_manager
 
+        # 初始化动态止损管理器
+        self.dynamic_stop_loss = DynamicStopLoss()
+
+        # 初始化动态仓位管理器
+        self.dynamic_position_sizing = DynamicPositionSizing()
+
+        # 初始化交易成本分析器
+        self.cost_analyzer = TransactionCostAnalyzer(account_tier=config.account_tier)
+
         # 记录每个币种的最后一次止盈更新时间
         self._last_tp_update_time: Dict[str, datetime] = {}
 
@@ -68,7 +83,7 @@ class TradeExecutor(BaseComponent):
         pass
 
     async def execute_trade(self, trade_request: Dict[str, Any]) -> TradeResult:
-        """执行交易"""
+        """执行交易 - 集成动态仓位管理"""
         try:
             symbol = trade_request['symbol']
             side = TradeSide(trade_request['side'])
@@ -79,72 +94,176 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"执行交易: {symbol} {side.value} {amount} @ {price or 'market'} - {reason}")
 
-            # 检查是否允许做空（新增检查）
-            if side == TradeSide.SELL and not self.config.allow_short_selling:
-                # 检查是否有现有持仓
-                await self.position_manager.update_position(self.exchange_client, symbol)
-                current_position = self.position_manager.get_position(symbol)
+            # 动态仓位管理
+            from ...config import load_config
+            config = load_config()
 
-                if not current_position or current_position.side == TradeSide.LONG:
-                    logger.warning(f"做空被禁用(allow_short_selling={self.config.allow_short_selling})，跳过SELL信号 - {symbol}")
-                    return TradeResult(
-                        success=False,
-                        error_message="做空功能已禁用"
-                    )
-                else:
-                    logger.info(f"已有空头持仓，允许继续做空操作 - {symbol}")
+            if config.risk.enable_dynamic_position_sizing and amount == 1.0:  # 只有默认仓位才重新计算
+                try:
+                    # 获取账户余额
+                    balance = await self.exchange_client.get_balance()
+                    if balance and hasattr(balance, 'free'):
+                        available_balance = balance.free
 
-            # 0. 检查现有持仓状态（如果启用）
-            current_position = None
-            if self.config.enable_position_check:
-                logger.info(f"开始检查持仓状态: {symbol}")
-                # 先更新仓位信息，确保获取最新数据
-                await self.position_manager.update_position(self.exchange_client, symbol)
-                current_position = self.position_manager.get_position(symbol)
-                if current_position:
-                    logger.info(f"检测到现有持仓: {symbol} {current_position.side.value} {current_position.amount}")
+                        # 获取当前价格
+                        current_price = await self._get_current_price(symbol)
 
-                    # 严格检查仓位数量，避免对0仓位进行操作
-                    if current_position.amount <= 0:
-                        logger.warning(f"检测到仓位数量为 {current_position.amount}，视为无有效持仓，执行新开仓")
-                        # 清理无效仓位缓存
-                        if self.position_manager.has_position(symbol):
-                            logger.info(f"清理无效仓位缓存: {symbol}")
-                        # 继续执行新开仓逻辑，不进入持仓处理分支
-                    else:
-                        # 正常的持仓处理逻辑
-                        # 检查信号方向是否与持仓一致
-                        if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
-                           (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
-                            logger.info("信号方向与现有持仓一致")
+                        # 获取市场数据计算ATR
+                        ohlcv_data = await self.exchange_client.get_ohlcv(symbol, config.exchange.timeframe, limit=20)
+                        if ohlcv_data and len(ohlcv_data) >= 14:
+                            from ...utils.technical import TechnicalIndicators
+                            tech_indicators = TechnicalIndicators()
+                            high_low_data = [(d[2], d[3]) for d in ohlcv_data]
+                            atr_14 = tech_indicators.calculate_atr(high_low_data, period=14)
 
-                        # 有持仓时更新止盈止损（与加仓功能无关）
-                        if self.config.enable_tp_sl:
-                            logger.info(f"检测到同向信号，更新现有持仓止盈止损: {symbol}")
-                            await self._check_and_update_tp_sl(symbol, side, current_position)
-                            logger.info(f"止盈止损更新完成")
-                        else:
-                            logger.info(f"止盈止损功能已禁用，跳过更新: {symbol}")
+                            # 获取信号强度
+                            signal_strength = trade_request.get('confidence', 0.5)
 
-                        # 检查是否允许加仓
-                        if not self.config.enable_add_position:
-                            logger.info("加仓功能已禁用，跳过此次交易")
-                            return TradeResult(
-                                success=False,
-                                error_message="加仓功能已禁用"
+                            # 确定风险等级
+                            risk_level = self._determine_risk_level(trade_request)
+
+                            # 确定市场波动率
+                            market_volatility = self._determine_market_volatility(ohlcv_data)
+
+                            # 使用动态仓位管理器重新计算
+                            position_result = self.dynamic_position_sizing.calculate_position_size(
+                                account_balance=available_balance,
+                                current_price=current_price,
+                                atr_14=atr_14,
+                                signal_strength=signal_strength,
+                                confidence=signal_strength,
+                                market_volatility=market_volatility,
+                                risk_level=risk_level,
+                                symbol=symbol.replace('/USDT', ''),
+                                max_risk_per_trade=config.risk.max_risk_per_trade
                             )
 
-                        # 检查是否超过最大仓位限制
-                        new_total_amount = current_position.amount + amount
-                        if new_total_amount > self.config.max_position_amount:
-                            logger.info(f"加仓后总仓位 {new_total_amount} 超过最大限制 {self.config.max_position_amount}，调整加仓量")
-                            amount = self.config.max_position_amount - current_position.amount
-                            if amount <= 0:
-                                logger.info("已达到最大仓位限制，无法继续加仓")
-                                return TradeResult(
-                                    success=False,
-                                    error_message="已达到最大仓位限制"
-                                )
+                            # 更新交易数量
+                            original_amount = amount
+                            amount = position_result['contracts']
+                            logger.info(f"动态仓位调整: {original_amount} -> {amount} (价值: ${position_result['position_value_usd']:.2f})")
+
+                            # 更新交易请求
+                            trade_request['amount'] = amount
+                            trade_request['position_info'] = position_result
+
+                except Exception as e:
+                    logger.error(f"动态仓位管理失败: {e}，使用原仓位")
+                    amount = trade_request.get('amount', 1.0)
+
+    def _determine_risk_level(self, trade_request: Dict[str, Any]) -> str:
+        """根据交易请求确定风险等级"""
+        confidence = trade_request.get('confidence', 0.5)
+
+        if confidence > 0.8:
+            return 'low'
+        elif confidence > 0.6:
+            return 'medium'
+        elif confidence > 0.4:
+            return 'high'
+        else:
+            return 'very_high'
+
+    def _determine_market_volatility(self, ohlcv_data: list) -> str:
+        """根据历史数据确定市场波动率"""
+        if len(ohlcv_data) < 5:
+            return 'normal'
+
+        # 计算价格变化
+        price_changes = []
+        for i in range(1, len(ohlcv_data)):
+            change = abs((ohlcv_data[i][4] - ohlcv_data[i-1][4]) / ohlcv_data[i-1][4])
+            price_changes.append(change)
+
+        avg_change = sum(price_changes) / len(price_changes)
+
+        # 根据平均变化判断波动率
+        if avg_change < 0.001:  # 0.1%
+            return 'very_low'
+        elif avg_change < 0.002:  # 0.2%
+            return 'low'
+        elif avg_change < 0.005:  # 0.5%
+            return 'normal'
+        elif avg_change < 0.01:   # 1%
+            return 'high'
+        else:
+            return 'very_high'
+
+    def _get_current_price(self, symbol: str) -> float:
+        """获取当前价格"""
+        try:
+            ticker = self.exchange_client.get_ticker(symbol)
+            return float(ticker['last']) if ticker and 'last' in ticker else 0
+        except Exception as e:
+            logger.error(f"获取当前价格失败: {e}")
+            return 0
+
+        # 检查是否允许做空（新增检查）
+        if side == TradeSide.SELL and not self.config.allow_short_selling:
+            # 检查是否有现有持仓
+            await self.position_manager.update_position(self.exchange_client, symbol)
+            current_position = self.position_manager.get_position(symbol)
+
+            if not current_position or current_position.side == TradeSide.LONG:
+                logger.warning(f"做空被禁用(allow_short_selling={self.config.allow_short_selling})，跳过SELL信号 - {symbol}")
+                return TradeResult(
+                    success=False,
+                    error_message="做空功能已禁用"
+                )
+            else:
+                logger.info(f"已有空头持仓，允许继续做空操作 - {symbol}")
+
+        # 0. 检查现有持仓状态（如果启用）
+        current_position = None
+        if self.config.enable_position_check:
+            logger.info(f"开始检查持仓状态: {symbol}")
+            # 先更新仓位信息，确保获取最新数据
+            await self.position_manager.update_position(self.exchange_client, symbol)
+            current_position = self.position_manager.get_position(symbol)
+            if current_position:
+                logger.info(f"检测到现有持仓: {symbol} {current_position.side.value} {current_position.amount}")
+
+                # 严格检查仓位数量，避免对0仓位进行操作
+                if current_position.amount <= 0:
+                    logger.warning(f"检测到仓位数量为 {current_position.amount}，视为无有效持仓，执行新开仓")
+                    # 清理无效仓位缓存
+                    if self.position_manager.has_position(symbol):
+                        logger.info(f"清理无效仓位缓存: {symbol}")
+                    # 继续执行新开仓逻辑，不进入持仓处理分支
+                else:
+                    # 正常的持仓处理逻辑
+                    # 检查信号方向是否与持仓一致
+                    if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
+                       (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
+                        logger.info("信号方向与现有持仓一致")
+
+                    # 有持仓时更新止盈止损（与加仓功能无关）
+                    if self.config.enable_tp_sl:
+                        logger.info(f"检测到同向信号，更新现有持仓止盈止损: {symbol}")
+                        await self._check_and_update_tp_sl(symbol, side, current_position)
+                        logger.info(f"止盈止损更新完成")
+                    else:
+                        logger.info(f"止盈止损功能已禁用，跳过更新: {symbol}")
+
+                    # 检查是否允许加仓
+                    if not self.config.enable_add_position:
+                        logger.info("加仓功能已禁用，跳过此次交易")
+                        return TradeResult(
+                            success=False,
+                            error_message="加仓功能已禁用"
+                        )
+
+                    # 检查是否超过最大仓位限制
+                    new_total_amount = current_position.amount + amount
+                    if new_total_amount > self.config.max_position_amount:
+                        logger.info(f"加仓后总仓位 {new_total_amount} 超过最大限制 {self.config.max_position_amount}，调整加仓量")
+                        amount = self.config.max_position_amount - current_position.amount
+                        if amount <= 0:
+                            logger.info("已达到最大仓位限制，无法继续加仓")
+                            return TradeResult(
+                                success=False,
+                                error_message="已达到最大仓位限制"
+                            )
 
                         # 按比例调整加仓量
                         amount = amount * self.config.add_position_ratio
@@ -215,7 +334,10 @@ class TradeExecutor(BaseComponent):
                     error_message=f"余额检查异常: {str(e)}"
                 )
 
-            # 2. 创建主订单
+            # 2. 创建主订单 - 集成成本分析
+            expected_price = current_price  # 记录预期价格
+            order_start_time = time.time()
+
             if order_type == 'limit' and price:
                 order_result = await self.order_manager.create_limit_order(
                     symbol, side, amount, price
@@ -225,11 +347,87 @@ class TradeExecutor(BaseComponent):
                     symbol, side, amount
                 )
 
+            order_execution_time = time.time() - order_start_time
+
             if not order_result.success:
                 return TradeResult(
                     success=False,
                     error_message=f"订单创建失败: {order_result.error_message}"
                 )
+
+            # 分析交易成本（如果启用）
+            if self.config.enable_cost_analysis and order_result.success:
+                try:
+                    # 获取订单簿数据用于滑点分析
+                    orderbook_data = None
+                    try:
+                        orderbook = await self.exchange_client.fetch_order_book(symbol)
+                        if orderbook:
+                            orderbook_data = {
+                                'bids': orderbook.get('bids', [])[:5],
+                                'asks': orderbook.get('asks', [])[:5]
+                            }
+                    except:
+                        pass
+
+                    # 分析执行质量
+                    executed_trades = []
+                    if hasattr(order_result, 'trades') and order_result.trades:
+                        for trade in order_result.trades:
+                            executed_trades.append({
+                                'amount': trade.get('amount', amount),
+                                'price': trade.get('price', order_result.average_price),
+                                'timestamp': trade.get('datetime', datetime.now().isoformat())
+                            })
+
+                    execution_quality = self.cost_analyzer.analyze_execution_quality(
+                        order_id=order_result.id,
+                        symbol=symbol,
+                        order_type=order_type,
+                        side=side.value,
+                        quantity=amount,
+                        requested_price=expected_price,
+                        executed_trades=executed_trades,
+                        orderbook_data=orderbook_data
+                    )
+
+                    # 计算交易成本
+                    transaction_cost = self.cost_analyzer.calculate_transaction_cost(
+                        symbol=symbol,
+                        side=side.value,
+                        quantity=amount,
+                        expected_price=expected_price,
+                        actual_price=order_result.average_price,
+                        order_type=order_type,
+                        is_maker=execution_quality.fill_rate > 0.9 and abs(execution_quality.slippage_bps) < 5
+                    )
+
+                    logger.info(f"交易成本分析 - 总成本: {transaction_cost.cost_percentage:.3%}, "
+                               f"执行质量评分: {execution_quality.execution_quality_score:.1f}")
+
+                    # 检查是否达到最小盈利阈值
+                    if transaction_cost.cost_percentage > self.config.min_profit_threshold:
+                        logger.warning(f"交易成本 {transaction_cost.cost_percentage:.3%} 超过最小盈利阈值 {self.config.min_profit_threshold:.3%}")
+
+                        # 生成盈亏平衡分析
+                        break_even_return = self.cost_analyzer.calculate_break_even_return(
+                            strategy_return=0.0,
+                            holding_period_days=1
+                        )
+
+                        logger.info(f"盈亏平衡所需回报率: {break_even_return:.3%}")
+
+                        # 记录成本信息到交易结果
+                        order_result.cost_info = {
+                            'transaction_cost': transaction_cost.__dict__,
+                            'execution_quality': execution_quality.__dict__,
+                            'break_even_return': break_even_return,
+                            'cost_analysis_enabled': True
+                        }
+
+                except Exception as e:
+                    logger.error(f"交易成本分析失败: {e}")
+                    order_result.cost_info = {'cost_analysis_enabled': True, 'error': str(e)}
 
             # 3. 等待订单成交
             filled_order = await self._wait_for_order_fill(order_result)
@@ -386,18 +584,89 @@ class TradeExecutor(BaseComponent):
             )
 
     def _get_tp_sl_percentages(self) -> tuple[float, float]:
-        """获取止盈止损百分比配置 - 支持新模式"""
+        """获取止盈止损百分比 - 基于配置和市场数据（动态计算）"""
         from ...config import load_config
+        from ...utils.technical import TechnicalIndicators
         config = load_config()
 
-        # 检查止盈止损是否启用
+        logger.info("调试 - 进入止盈止损百分比获取函数")
+
+        # 检查是否启用了止盈和止损
         if not config.strategies.take_profit_enabled and not config.strategies.stop_loss_enabled:
             return 0.0, 0.0
 
-        # 根据模式获取止盈百分比
+        # 获取市场数据用于动态计算
+        try:
+            # 获取技术指标实例
+            tech_indicators = TechnicalIndicators()
+
+            # 获取当前价格和ATR数据
+            symbol = config.exchange.symbol
+            current_data = self.exchange_client.get_ohlcv(symbol, config.exchange.timeframe, limit=20)
+
+            if current_data and len(current_data) >= 14:
+                # 计算ATR
+                current_price = current_data[-1][4]  # 收盘价
+                high_low_data = [(d[2], d[3]) for d in current_data]  # 高、低价
+                atr_14 = tech_indicators.calculate_atr(high_low_data, period=14)
+
+                # 计算市场波动率
+                price_changes = [abs((current_data[i][4] - current_data[i-1][4]) / current_data[i-1][4])
+                               for i in range(1, len(current_data))]
+                avg_volatility = sum(price_changes[-10:]) / 10  # 最近10期平均波动率
+
+                logger.info(f"市场数据 - 当前价: ${current_price:.2f}, ATR: ${atr_14:.2f}, "
+                           f"平均波动率: {avg_volatility:.2%}")
+
+                # 使用动态止损系统
+                if config.strategies.stop_loss_mode == 'smart' and atr_14 > 0:
+                    # 确定波动率制度
+                    volatility_regime = self.dynamic_stop_loss.get_volatility_regime(
+                        atr_14 / current_price, avg_volatility
+                    )
+
+                    logger.info(f"检测到波动率制度: {volatility_regime}")
+
+                    # 根据ATR动态计算止损百分比
+                    dynamic_result = self.dynamic_stop_loss.calculate_stop_loss(
+                        entry_price=current_price,
+                        current_price=current_price,
+                        atr_14=atr_14,
+                        symbol=config.exchange.symbol.replace('/USDT', '').replace('-SWAP', ''),
+                        position_side='long',  # 默认多头，实际应根据信号判断
+                        market_volatility=volatility_regime,
+                        account_risk_pct=0.02  # 默认2%账户风险
+                    )
+
+                    # 使用动态计算的止损百分比
+                    dynamic_sl_pct = dynamic_result['stop_loss_pct']
+                    logger.info(f"动态止损计算结果: {dynamic_sl_pct:.2%}")
+
+                    # 根据配置选择是否使用动态止损
+                    if config.strategies.adaptive_stop_loss_enabled:
+                        # 根据趋势进一步调整
+                        trend_adjustment = self._get_trend_adjustment(current_data)
+                        final_sl_pct = dynamic_sl_pct * (1 + trend_adjustment)
+                        logger.info(f"趋势调整后止损: {final_sl_pct:.2%}")
+                    else:
+                        final_sl_pct = dynamic_sl_pct
+
+                else:
+                    # 使用配置中的固定值
+                    final_sl_pct = config.strategies.smart_fixed_stop_loss_percent
+
+            else:
+                # 数据不足，使用配置值
+                final_sl_pct = config.strategies.smart_fixed_stop_loss_percent
+                logger.warning("市场数据不足，使用配置止损百分比")
+
+        except Exception as e:
+            logger.error(f"动态止损计算失败: {e}，使用配置值")
+            final_sl_pct = config.strategies.smart_fixed_stop_loss_percent
+
+        # 根据模式获取止盈百分比（保持不变）
         if config.strategies.take_profit_enabled:
             if config.strategies.take_profit_mode == 'normal':
-                # 普通模式：使用固定百分比
                 take_profit_pct = config.strategies.normal_take_profit_percent
                 logger.info(f"使用普通模式止盈: {take_profit_pct*100:.1f}%")
             else:
@@ -413,29 +682,36 @@ class TradeExecutor(BaseComponent):
         else:
             take_profit_pct = 0.0
 
-        # 根据模式获取止损百分比
-        if config.strategies.stop_loss_enabled:
-            if config.strategies.stop_loss_mode == 'normal':
-                # 普通模式：使用固定百分比
-                stop_loss_pct = config.strategies.normal_stop_loss_percent
-                logger.info(f"使用普通模式止损: {stop_loss_pct*100:.1f}%")
+        # 确保止损百分比在合理范围内
+        min_sl = 0.008  # 最小0.8%
+        max_sl = 0.08   # 最大8%
+        final_sl_pct = max(min_sl, min(max_sl, final_sl_pct))
+
+        logger.info(f"最终止盈止损配置: 止盈={take_profit_pct*100:.1f}%, 止损={final_sl_pct*100:.1f}%")
+
+        return take_profit_pct, final_sl_pct
+
+    def _get_trend_adjustment(self, ohlcv_data: list) -> float:
+        """根据趋势调整止损百分比"""
+        try:
+            if len(ohlcv_data) < 5:
+                return 0
+
+            # 计算简单趋势指标
+            closes = [d[4] for d in ohlcv_data[-5:]]  # 最近5个收盘价
+
+            # 上升趋势：收盘价递增
+            if all(closes[i] > closes[i-1] for i in range(1, len(closes))):
+                return -0.2  # 收紧20%
+            # 下降趋势：收盘价递减
+            elif all(closes[i] < closes[i-1] for i in range(1, len(closes))):
+                return 0.3   # 放宽30%
             else:
-                # 智能模式：检查是否启用自适应止损
-                if config.strategies.adaptive_stop_loss_enabled:
-                    # 自适应止损：根据趋势动态选择百分比
-                    # 这里返回基础值，实际趋势判断在追踪止损逻辑中进行
-                    stop_loss_pct = config.strategies.smart_fixed_stop_loss_percent
-                    logger.info(f"启用自适应止损，基础止损: {stop_loss_pct*100:.1f}% (将动态调整)")
-                else:
-                    # 智能固定模式
-                    stop_loss_pct = config.strategies.smart_fixed_stop_loss_percent
-                    logger.info(f"使用智能固定模式止损: {stop_loss_pct*100:.1f}%")
-        else:
-            stop_loss_pct = 0.0
+                return 0     # 无趋势，不调整
 
-        logger.info(f"最终止盈止损配置: 止盈={take_profit_pct*100:.1f}%, 止损={stop_loss_pct*100:.1f}%")
-
-        return take_profit_pct, stop_loss_pct
+        except Exception as e:
+            logger.error(f"趋势调整计算失败: {e}")
+            return 0
 
     def _get_multi_level_take_profit_prices(self, entry_price: float, current_price: float, position_side: TradeSide) -> List[Dict[str, Any]]:
         """获取多级止盈价格配置 - 支持新模式"""

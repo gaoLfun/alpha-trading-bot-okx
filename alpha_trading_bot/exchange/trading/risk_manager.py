@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from ...core.base import BaseComponent, BaseConfig
 from ..models import RiskAssessmentResult
+from .dynamic_position_sizing import DynamicPositionSizing
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,9 @@ class RiskManager(BaseComponent):
         self.position_risk_score = 0.0
         self.trade_history: list = []
         self._current_balance = None  # 存储当前余额信息
+
+        # 初始化动态仓位管理器
+        self.position_sizer = DynamicPositionSizing()
 
     async def initialize(self) -> bool:
         """初始化风险管理器"""
@@ -217,42 +221,116 @@ class RiskManager(BaseComponent):
                                     logger.warning(f"  缺少: {min_required_margin - usable_balance:.4f} USDT")
                                     logger.warning(f"  建议: 增加账户余额或减少杠杆倍数")
 
-                                # 计算可交易的最大张数
-                                # 保证金 = 数量 × 合约大小 × 价格 ÷ 杠杆
-                                # 所以 数量 = 保证金 × 杠杆 ÷ (合约大小 × 价格)
-                                max_contracts = (usable_balance * leverage) / (contract_size * current_price)
+                                # 使用动态仓位管理器计算最优仓位
+                                try:
+                                    # 获取市场数据和技术指标
+                                    from ...utils.technical import TechnicalIndicators
+                                    tech_indicators = TechnicalIndicators()
 
-                                if max_contracts < min_contracts:
-                                    # 如果计算的数量小于最小交易量，使用最小交易量
-                                    logger.warning(f"计算的交易数量小于最小交易量要求")
-                                    logger.warning(f"  计算得到: {max_contracts:.4f} 张")
-                                    logger.warning(f"  最小要求: {min_contracts} 张")
-                                    logger.warning(f"  将使用最小交易量: {min_contracts} 张")
-                                    logger.warning(f"  实际需要保证金: {min_required_margin:.4f} USDT")
-                                    max_contracts = min_contracts
-                                else:
-                                    # 保留小数位数，不进行向下取整，让交易所处理精度
-                                    max_contracts = round(max_contracts, 4)  # 保留4位小数
+                                    # 获取ATR数据
+                                    recent_data = self.exchange_client.get_ohlcv(symbol, '15m', limit=20)
+                                    if recent_data and len(recent_data) >= 14:
+                                        high_low_data = [(d[2], d[3]) for d in recent_data]
+                                        atr_14 = tech_indicators.calculate_atr(high_low_data, period=14)
 
-                                # 计算实际使用的保证金
-                                actual_margin = (max_contracts * contract_size * current_price) / leverage
+                                        # 计算信号强度和置信度
+                                        signal_strength = signal.get('confidence', 0.5)  # 从信号中获取
+                                        confidence = signal.get('confidence', 0.5)
 
-                                logger.info(f"根据余额计算交易数量 - 可用余额: {available_balance:.4f} USDT, "
-                                          f"使用余额: {usable_balance:.4f} USDT, 杠杆: {leverage}x, "
-                                          f"最大可交易: {max_contracts} 张, 实际使用保证金: {actual_margin:.4f} USDT")
+                                        # 确定风险等级
+                                        risk_level = self._determine_risk_level(signal)
 
-                                amount = max_contracts
+                                        # 确定市场波动率
+                                        market_volatility = self._determine_market_volatility(recent_data)
+
+                                        # 使用动态仓位管理器计算仓位
+                                        position_result = self.position_sizer.calculate_position_size(
+                                            account_balance=available_balance,
+                                            current_price=current_price,
+                                            atr_14=atr_14,
+                                            signal_strength=signal_strength,
+                                            confidence=confidence,
+                                            market_volatility=market_volatility,
+                                            risk_level=risk_level,
+                                            symbol=symbol.replace('/USDT', ''),
+                                            max_risk_per_trade=0.02
+                                        )
+
+                                        # 获取建议的合约数量
+                                        amount = position_result['contracts']
+                                        logger.info(f"动态仓位管理器计算结果: {position_result}")
+
+                                    else:
+                                        # 数据不足，使用基础计算
+                                        raise ValueError("市场数据不足")
+
+                                except Exception as e:
+                                    logger.error(f"动态仓位计算失败: {e}，回退到基础计算")
+
+                                    # 回退到基础仓位计算
+                                    # 计算可交易的最大张数
+                                    max_contracts = (usable_balance * leverage) / (contract_size * current_price)
+
+                                    if max_contracts < min_contracts:
+                                        logger.warning(f"计算的交易数量小于最小交易量要求，使用最小值: {min_contracts}")
+                                        amount = min_contracts
+                                    else:
+                                        amount = round(max_contracts, 4)
+
+                                    # 计算实际使用的保证金
+                                    actual_margin = (amount * contract_size * current_price) / leverage
+                                    logger.info(f"基础仓位计算 - 可用余额: {available_balance:.4f} USDT, "
+                                              f"杠杆: {leverage}x, 合约数量: {amount}, 保证金: {actual_margin:.4f} USDT")
 
                             except Exception as e:
                                 logger.error(f"根据余额计算交易数量失败: {e}，使用默认数量1张")
                                 amount = 1.0
+
+                            # 添加辅助方法
+                            def _determine_risk_level(self, signal: Dict[str, Any]) -> str:
+                                """根据信号确定风险等级"""
+                                confidence = signal.get('confidence', 0.5)
+
+                                if confidence > 0.8:
+                                    return 'low'
+                                elif confidence > 0.6:
+                                    return 'medium'
+                                elif confidence > 0.4:
+                                    return 'high'
+                                else:
+                                    return 'very_high'
+
+                            def _determine_market_volatility(self, ohlcv_data: list) -> str:
+                                """根据历史数据确定市场波动率"""
+                                if len(ohlcv_data) < 5:
+                                    return 'normal'
+
+                                # 计算价格变化
+                                price_changes = []
+                                for i in range(1, len(ohlcv_data)):
+                                    change = abs((ohlcv_data[i][4] - ohlcv_data[i-1][4]) / ohlcv_data[i-1][4])
+                                    price_changes.append(change)
+
+                                avg_change = sum(price_changes) / len(price_changes)
+
+                                # 根据平均变化判断波动率
+                                if avg_change < 0.001:  # 0.1%
+                                    return 'very_low'
+                                elif avg_change < 0.002:  # 0.2%
+                                    return 'low'
+                                elif avg_change < 0.005:  # 0.5%
+                                    return 'normal'
+                                elif avg_change < 0.01:   # 1%
+                                    return 'high'
+                                else:
+                                    return 'very_high'
                         else:
                             # 没有余额信息或不是买入信号，使用默认数量
                             amount = signal.get('size', 1.0)  # 默认交易量1张
 
                             # 验证最小交易量要求
                             if symbol in ['BTC/USDT:USDT', 'BTC-USDT-SWAP']:
-                                min_contracts = 1.0
+                                min_contracts = 0.01  # OKX最小0.01张
                                 if amount < min_contracts:
                                     logger.warning(f"交易数量 {amount} 张小于最小要求 {min_contracts} 张，调整为 {min_contracts} 张")
                                     amount = min_contracts

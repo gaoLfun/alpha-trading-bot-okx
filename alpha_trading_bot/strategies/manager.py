@@ -10,6 +10,8 @@ from datetime import datetime
 from ..core.base import BaseComponent, BaseConfig
 from ..core.exceptions import StrategyError
 from .crash_recovery_manager import CrashRecoveryManager
+from .market_regime_detector import MarketRegimeDetector
+from .adaptive_strategy import AdaptiveStrategy
 
 # 全局策略管理器实例
 _strategy_manager: Optional['StrategyManager'] = None
@@ -30,6 +32,10 @@ class StrategyManagerConfig(BaseConfig):
     crash_recovery_config: Optional[Dict] = None  # 暴跌恢复策略配置
 
     """策略管理器"""
+
+    # 自适应策略配置
+    enable_adaptive_strategy: bool = True  # 启用自适应策略
+    adaptive_strategy_config: Optional[Dict] = None  # 自适应策略配置
 
     async def _check_market_liquidity(self, market_data: Dict[str, Any]) -> tuple[bool, str]:
         """检查市场流动性
@@ -430,6 +436,36 @@ class StrategyManager(BaseComponent):
             config=config.crash_recovery_config
         )
 
+        # 初始化市场环境识别器
+        self.market_regime_detector = MarketRegimeDetector()
+
+        # 初始化自适应策略系统
+        self.adaptive_strategy = AdaptiveStrategy()
+        if config.enable_adaptive_strategy:
+            self.adaptive_strategy.enable_adaptation(True)
+
+    async def update_strategy_performance(self, trade_result: Dict[str, Any]):
+        """更新策略绩效数据"""
+        try:
+            if not self.config.enable_adaptive_strategy or not hasattr(self, 'adaptive_strategy'):
+                return
+
+            # 获取当前市场环境
+            current_regime = self.adaptive_strategy.get_current_regime()
+            if current_regime:
+                # 更新自适应策略的绩效数据
+                self.adaptive_strategy.update_performance(
+                    regime_type=current_regime.regime_type,
+                    trade_result=trade_result,
+                    entry_price=trade_result.get('entry_price', 0),
+                    exit_price=trade_result.get('exit_price', 0),
+                    position_size=trade_result.get('position_size', 0)
+                )
+                logger.info(f"策略绩效已更新 - 市场环境: {current_regime.regime_type}")
+
+        except Exception as e:
+            logger.error(f"策略绩效更新失败: {e}")
+
     async def initialize(self) -> bool:
         """初始化策略管理器"""
         logger.info("正在初始化策略管理器...")
@@ -707,8 +743,8 @@ class StrategyManager(BaseComponent):
             return []
 
     async def _generate_strategy_signals(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """生成策略信号"""
-        # 改进实现：基于多种技术指标生成信号
+        """生成策略信号 - 集成自适应策略"""
+        # 改进实现：基于多种技术指标和自适应策略生成信号
         signals = []
 
         try:
@@ -809,35 +845,124 @@ class StrategyManager(BaseComponent):
                     # 回退到传统方法
                     price_position = (price - low) / (high - low)
 
-                # 根据投资类型生成对应的策略信号
-                if investment_type == 'conservative':
-                    # 稳健型策略：宽区间，低频次交易，提前锁定利润
-                    strategy_info = self.active_strategies['conservative']
-                    if price_position < 0.3:  # 较早买入，降低踏空风险
-                        signals.append({
-                            'type': 'buy',
-                            'confidence': 0.7,
-                            'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格回调到合理区间({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，适合建仓",
-                            'source': 'conservative_strategy',
-                            'strategy_type': 'conservative',
-                            'strategy_details': strategy_info,
-                            'timestamp': datetime.now()
-                        })
-                    elif price_position > 0.7:  # 较早卖出，锁定利润
-                        # 检查是否允许做空
-                        if not await self._check_allow_short_selling():
-                            logger.info("保守策略：做空被禁用，跳过sell信号")
-                            # 不添加sell信号，继续处理其他逻辑
-                        else:
+                # 获取自适应策略参数（如果启用）
+                if self.config.enable_adaptive_strategy and hasattr(self, 'adaptive_strategy'):
+                    try:
+                        # 获取OHLCV数据用于市场环境识别
+                        ohlcv_data = []
+                        if market_data.get('close_prices'):
+                            # 构建OHLCV数据格式 [timestamp, open, high, low, close, volume]
+                            base_time = int(datetime.now().timestamp() * 1000)
+                            for i, close in enumerate(market_data['close_prices']):
+                                time_offset = i * 15 * 60 * 1000  # 15分钟间隔
+                                ohlcv_data.append([
+                                    base_time - time_offset,
+                                    market_data.get('open_prices', [close] * len(market_data['close_prices']))[i],
+                                    market_data.get('high_prices', [close] * len(market_data['close_prices']))[i],
+                                    market_data.get('low_prices', [close] * len(market_data['close_prices']))[i],
+                                    close,
+                                    market_data.get('volumes', [100] * len(market_data['close_prices']))[i]
+                                ])
+
+                        # 获取自适应参数
+                        adaptive_params = self.adaptive_strategy.get_adaptive_parameters(
+                            ohlcv_data=ohlcv_data,
+                            current_signal={'strength': 0.7, 'confidence': 0.7},
+                            account_balance=10000,  # 示例值
+                            position_size=1000
+                        )
+
+                        logger.info(f"自适应策略参数: {adaptive_params}")
+
+                        # 使用自适应参数调整信号生成
+                        if adaptive_params.get('should_trade', True):
+                            adjusted_confidence = adaptive_params.get('entry_confidence', 0.7)
+                            adjusted_reason = f"自适应策略 - 市场环境: {adaptive_params.get('regime_type', 'unknown')}"
+
+                            # 根据推荐策略类型生成信号
+                            if adaptive_params['recommended_strategy'] == 'trend_following':
+                                # 趋势跟踪策略
+                                if price_position < adaptive_params.get('rsi_oversold', 30) / 100:
+                                    signals.append({
+                                        'type': 'buy',
+                                        'confidence': adjusted_confidence,
+                                        'reason': adjusted_reason,
+                                        'source': 'adaptive_strategy',
+                                        'strategy_type': 'adaptive_trend',
+                                        'adaptive_params': adaptive_params,
+                                        'timestamp': datetime.now()
+                                    })
+                                elif price_position > (100 - adaptive_params.get('rsi_overbought', 70)) / 100:
+                                    signals.append({
+                                        'type': 'sell',
+                                        'confidence': adjusted_confidence,
+                                        'reason': adjusted_reason,
+                                        'source': 'adaptive_strategy',
+                                        'strategy_type': 'adaptive_trend',
+                                        'adaptive_params': adaptive_params,
+                                        'timestamp': datetime.now()
+                                    })
+                            elif adaptive_params['recommended_strategy'] == 'mean_reversion':
+                                # 均值回归策略
+                                if price_position < 0.3 or price_position > 0.7:
+                                    signal_type = 'buy' if price_position < 0.3 else 'sell'
+                                    signals.append({
+                                        'type': signal_type,
+                                        'confidence': adjusted_confidence,
+                                        'reason': adjusted_reason,
+                                        'source': 'adaptive_strategy',
+                                        'strategy_type': 'adaptive_mean_reversion',
+                                        'adaptive_params': adaptive_params,
+                                        'timestamp': datetime.now()
+                                    })
+                            elif adaptive_params['recommended_strategy'] == 'volatility_trading':
+                                # 波动率交易策略（更谨慎）
+                                if adjusted_confidence > 0.8:
+                                    signal_type = 'buy' if price_position < 0.4 else 'sell'
+                                    signals.append({
+                                        'type': signal_type,
+                                        'confidence': adjusted_confidence,
+                                        'reason': adjusted_reason,
+                                        'source': 'adaptive_strategy',
+                                        'strategy_type': 'adaptive_volatility',
+                                        'adaptive_params': adaptive_params,
+                                        'timestamp': datetime.now()
+                                    })
+
+                    except Exception as e:
+                        logger.error(f"自适应策略参数获取失败: {e}，回退到传统策略")
+
+                # 如果自适应策略未生成信号，使用传统策略作为回退
+                if not any(s.get('source') == 'adaptive_strategy' for s in signals):
+                    # 根据投资类型生成对应的策略信号
+                    if investment_type == 'conservative':
+                        # 稳健型策略：宽区间，低频次交易，提前锁定利润
+                        strategy_info = self.active_strategies['conservative']
+                        if price_position < 0.3:  # 较早买入，降低踏空风险
                             signals.append({
-                                'type': 'sell',
+                                'type': 'buy',
                                 'confidence': 0.7,
-                                'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格反弹到合理高位({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，考虑减仓锁定利润",
+                                'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格回调到合理区间({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，适合建仓",
                                 'source': 'conservative_strategy',
                                 'strategy_type': 'conservative',
                                 'strategy_details': strategy_info,
                                 'timestamp': datetime.now()
                             })
+                        elif price_position > 0.7:  # 较早卖出，锁定利润
+                            # 检查是否允许做空
+                            if not await self._check_allow_short_selling():
+                                logger.info("保守策略：做空被禁用，跳过sell信号")
+                                # 不添加sell信号，继续处理其他逻辑
+                            else:
+                                signals.append({
+                                    'type': 'sell',
+                                    'confidence': 0.7,
+                                    'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格反弹到合理高位({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，考虑减仓锁定利润",
+                                    'source': 'conservative_strategy',
+                                    'strategy_type': 'conservative',
+                                    'strategy_details': strategy_info,
+                                    'timestamp': datetime.now()
+                                })
 
                 elif investment_type == 'moderate':
                     # 中等型策略：中等区间，趋势跟踪，平衡风险收益
@@ -1005,7 +1130,7 @@ class StrategyManager(BaseComponent):
         return self.active_strategies.get(strategy_name)
 
     def get_status(self) -> Dict[str, Any]:
-        """获取状态"""
+        """获取状态 - 集成成本分析"""
         base_status = super().get_status()
         base_status.update({
             'active_strategies': len(self.active_strategies),
@@ -1016,6 +1141,17 @@ class StrategyManager(BaseComponent):
         # 添加暴跌恢复策略状态
         if self.config.enable_crash_recovery and self.crash_recovery_manager:
             base_status['crash_recovery'] = self.crash_recovery_manager.get_status()
+
+        # 添加自适应策略状态
+        if self.config.enable_adaptive_strategy and hasattr(self, 'adaptive_strategy'):
+            current_regime = self.adaptive_strategy.get_current_regime()
+            if current_regime:
+                base_status['market_regime'] = {
+                    'type': current_regime.regime_type,
+                    'confidence': current_regime.regime_confidence,
+                    'volatility': current_regime.volatility_level,
+                    'recommended_strategy': current_regime.recommended_strategy
+                }
 
         return base_status
 

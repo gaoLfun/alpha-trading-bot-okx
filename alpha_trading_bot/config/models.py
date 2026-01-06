@@ -70,11 +70,11 @@ class StrategyConfig:
 
     # 普通模式配置（固定值）
     normal_take_profit_percent: float = 0.06  # 普通模式止盈百分比
-    normal_stop_loss_percent: float = 0.005   # 普通模式止损百分比
+    normal_stop_loss_percent: float = 0.02   # 普通模式止损百分比 - 从0.5%提高到2%
 
     # 智能模式-固定模式配置
     smart_fixed_take_profit_percent: float = 0.06  # 智能固定模式止盈百分比
-    smart_fixed_stop_loss_percent: float = 0.005   # 智能固定模式止损百分比
+    smart_fixed_stop_loss_percent: float = 0.02   # 智能固定模式止损百分比 - 从0.5%提高到2%
 
     # 智能模式-多级模式配置
     smart_multi_take_profit_levels: List[float] = None  # 多级止盈级别列表
@@ -86,8 +86,8 @@ class StrategyConfig:
 
     # 自适应止损配置
     adaptive_stop_loss_enabled: bool = True  # 是否启用自适应止损
-    up_trend_stop_loss: float = 0.002  # 上升趋势止损百分比
-    down_trend_stop_loss: float = 0.01  # 下降趋势止损百分比
+    up_trend_stop_loss: float = 0.015  # 上升趋势止损百分比 - 从0.2%提高到1.5%
+    down_trend_stop_loss: float = 0.025  # 下降趋势止损百分比 - 从1%提高到2.5%
 
     # 止盈策略配置
     profit_taking_strategy: str = 'single_level'  # 止盈策略：'single_level' 单级，'multi_level' 多级
@@ -104,6 +104,23 @@ class RiskConfig:
     trailing_distance: float = 0.015  # 追踪距离（百分比）
     trailing_stop_loss_enabled: bool = True  # 是否启用追踪止损
     trailing_stop_loss_mode: str = 'entry_based'  # 追踪模式：'entry_based'（基于入场价）或 'fixed'（固定距离）
+
+    # 动态仓位管理配置
+    enable_dynamic_position_sizing: bool = True  # 是否启用动态仓位管理
+    max_risk_per_trade: float = 0.02  # 每笔交易最大风险（2%）
+    min_position_size: float = 0.01  # 最小仓位（合约数）
+    max_position_size: float = 10.0  # 最大仓位（合约数）
+    position_sizing_strategy: str = 'kelly'  # 仓位策略：'fixed', 'kelly', 'volatility', 'risk_parity'
+    kelly_fraction: float = 0.25  # 凯利分数（使用1/4凯利降低风险）
+    volatility_threshold_low: float = 0.01  # 低波动阈值（1%）
+    volatility_threshold_high: float = 0.03  # 高波动阈值（3%）
+
+    # 交易成本分析配置
+    enable_cost_analysis: bool = True  # 启用成本分析
+    account_tier: str = 'regular'  # 账户等级（regular, vip1, vip2, vip3, vip4）
+    min_profit_threshold: float = 0.002  # 最小盈利阈值（0.2%）
+    cost_analysis_window_days: int = 30  # 成本分析窗口（天）
+    max_acceptable_slippage_bps: int = 10  # 最大可接受滑点（基点）
 
 @dataclass
 class AIConfig:
