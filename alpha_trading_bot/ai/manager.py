@@ -285,8 +285,19 @@ class AIManager(BaseComponent):
             return None
 
     async def _generate_multi_ai_signals(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """生成多AI信号"""
+        """生成多AI信号 - 添加趋势确认"""
         try:
+            # 获取市场趋势信息
+            trend_direction = market_data.get('trend_direction', 'neutral')
+            trend_strength = market_data.get('trend_strength', 'normal')
+
+            # 添加趋势过滤警告
+            if trend_strength in ['strong', 'extreme']:
+                if trend_direction == 'down':
+                    logger.warning(f"🚨 检测到强势下跌趋势({trend_strength})，将严格过滤买入信号")
+                elif trend_direction == 'up':
+                    logger.warning(f"🚨 检测到强势上涨趋势({trend_strength})，将严格过滤卖出信号")
+
             # 并行获取所有提供商的信号
             tasks = []
             for provider in self.providers:
@@ -403,11 +414,21 @@ class AIManager(BaseComponent):
                 if fusion_weights:
                     logger.info(f"⚖️  融合权重: {fusion_weights}")
 
+                # 构建市场上下文信息用于趋势过滤
+                market_context = {
+                    'trend_direction': market_data.get('trend_direction', 'neutral'),
+                    'trend_strength': market_data.get('trend_strength', 'normal'),
+                    'adx': market_data.get('technical_data', {}).get('adx', 0),
+                    'macd': market_data.get('technical_data', {}).get('macd', 0),
+                    'price_position': market_data.get('composite_price_position', 50)
+                }
+
                 fused_signal = await self.ai_fusion.fuse_signals(
                     results,
                     strategy=fusion_strategy,
                     threshold=fusion_threshold,
-                    weights=fusion_weights
+                    weights=fusion_weights,
+                    market_context=market_context
                 )
                 if fused_signal:
                     action = fused_signal.get('signal', fused_signal.get('action', 'UNKNOWN'))
@@ -718,6 +739,18 @@ class AIManager(BaseComponent):
 
             # 获取趋势强度用于动态阈值
             trend_strength = market_data.get('trend_strength', 0.0)
+            trend_direction = market_data.get('trend_direction', 'neutral')
+
+            # 添加强势下跌趋势强制过滤 - 关键修复
+            if trend_strength < -0.3 and trend_direction == 'down':
+                logger.warning(f"🚨 检测到强势下跌趋势(强度:{trend_strength:.2f})，强制过滤买入信号")
+                if signal.get('signal') == 'BUY':
+                    # 强制将买入信号降级为HOLD
+                    signal['signal'] = 'HOLD'
+                    signal['reason'] = f"🚨 强势下跌趋势中禁止买入 - {signal.get('reason', '')}"
+                    signal['confidence'] = min(signal.get('confidence', 0.5), 0.4)  # 降低置信度
+                    logger.error(f"🚫 买入信号被强制过滤：强势下跌趋势中禁止买入")
+                    return signal  # 直接返回，跳过后续的价格位置增强
 
             # 检查是否突破历史高点
             current_price = market_data.get('current_price', 0)
@@ -786,8 +819,18 @@ class AIManager(BaseComponent):
                     # 从强买降级为弱买
                     signal['reason'] = f"{signal.get('reason', '')} [价格位置偏高({composite_position:.1f}%), 降低买入强度]"
 
+                # 严格趋势过滤 - 如果趋势未确认，强制降级
+                if not trend_confirmed and trend_reasons:
+                    logger.warning(f"🚨 严格趋势确认失败: {', '.join(trend_reasons)}")
+                    signal['signal'] = 'HOLD'
+                    signal['reason'] = f"{signal.get('reason', '')} [趋势确认失败: {', '.join(trend_reasons)}]"
+                    adjusted_confidence = min(adjusted_confidence, 0.4)
+                    logger.warning(f"买入信号已强制降级为HOLD - 综合价格位置: {composite_position:.1f}%")
+
                 logger.info(f"📍 买入信号调整 - 原始信心: {original_confidence:.2f} → 调整后: {adjusted_confidence:.2f}")
                 logger.info(f"📍 价格位置因子: {analysis['signal_multiplier']:.2f}x")
+                if trend_reasons:
+                    logger.info(f"📍 趋势确认问题: {', '.join(trend_reasons)}")
 
             # 更新信号
             signal['confidence'] = adjusted_confidence
@@ -944,6 +987,39 @@ async def cleanup_ai_manager() -> None:
             original_confidence = signal.get('confidence', 0.5)
             adjusted_confidence = scaler.calculate_signal_adjustment(original_confidence, composite_position)
 
+            # 严格趋势确认机制
+            trend_direction = market_data.get('trend_direction', 'neutral')
+            trend_strength = market_data.get('trend_strength', 'normal')
+            technical_data = market_data.get('technical_data', {})
+
+            # 多重趋势确认
+            trend_confirmed = True
+            trend_reasons = []
+
+            # 1. 市场机制趋势确认
+            if trend_direction == 'down' and trend_strength in ['strong', 'extreme']:
+                trend_confirmed = False
+                trend_reasons.append(f"强势下跌趋势({trend_strength})")
+
+            # 2. ADX趋势强度确认
+            adx = technical_data.get('adx', 0)
+            if adx > 25 and trend_direction == 'down':
+                trend_confirmed = False
+                trend_reasons.append(f"ADX强势({adx:.1f})")
+
+            # 3. MACD趋势确认
+            macd = technical_data.get('macd', 0)
+            macd_signal = technical_data.get('macd_signal', 0)
+            if macd < macd_signal and trend_direction == 'down':
+                trend_confirmed = False
+                trend_reasons.append("MACD死叉")
+
+            # 4. 价格动量确认
+            price_change_24h = market_data.get('change_percent_24h', 0)
+            if price_change_24h < -2 and signal.get('signal') == 'BUY':
+                trend_confirmed = False
+                trend_reasons.append(f"24h跌幅过大({price_change_24h:.1f}%)")
+
             # 调整买入信号阈值
             if signal.get('signal') == 'BUY':
                 # 获取调整后的阈值
@@ -959,8 +1035,18 @@ async def cleanup_ai_manager() -> None:
                     # 从强买降级为弱买
                     signal['reason'] = f"{signal.get('reason', '')} [价格位置偏高({composite_position:.1f}%), 降低买入强度]"
 
+                # 严格趋势过滤 - 如果趋势未确认，强制降级
+                if not trend_confirmed and trend_reasons:
+                    logger.warning(f"🚨 严格趋势确认失败: {', '.join(trend_reasons)}")
+                    signal['signal'] = 'HOLD'
+                    signal['reason'] = f"{signal.get('reason', '')} [趋势确认失败: {', '.join(trend_reasons)}]"
+                    adjusted_confidence = min(adjusted_confidence, 0.4)
+                    logger.warning(f"买入信号已强制降级为HOLD - 综合价格位置: {composite_position:.1f}%")
+
                 logger.info(f"📍 买入信号调整 - 原始信心: {original_confidence:.2f} → 调整后: {adjusted_confidence:.2f}")
                 logger.info(f"📍 价格位置因子: {analysis['signal_multiplier']:.2f}x")
+                if trend_reasons:
+                    logger.info(f"📍 趋势确认问题: {', '.join(trend_reasons)}")
 
             # 更新信号
             signal['confidence'] = adjusted_confidence

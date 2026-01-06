@@ -32,7 +32,8 @@ class AIFusion:
                           strategy: str = 'weighted',
                           threshold: float = 0.6,
                           weights: Optional[Dict[str, float]] = None,
-                          fusion_providers: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+                          fusion_providers: Optional[List[str]] = None,
+                          market_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """融合多个AI信号"""
         try:
             if not signals:
@@ -44,15 +45,19 @@ class AIFusion:
 
             logger.info(f"融合 {len(signals)} 个AI信号，策略: {strategy}")
 
+            # 应用提供商偏差纠正（增强版）
+            if market_context:
+                signals = self._apply_provider_bias_correction(signals, market_context)
+
             # 根据策略选择融合方法
             if strategy == 'consensus':
-                return await self._fuse_by_consensus(signals, threshold)
+                return await self._fuse_by_consensus(signals, threshold, market_context)
             elif strategy == 'majority':
-                return await self._fuse_by_majority(signals, threshold)
+                return await self._fuse_by_majority(signals, threshold, market_context)
             elif strategy == 'confidence':
-                return await self._fuse_by_confidence(signals)
+                return await self._fuse_by_confidence(signals, market_context)
             else:  # weighted
-                return await self._fuse_by_weighted(signals, weights, fusion_providers)
+                return await self._fuse_by_weighted(signals, weights, fusion_providers, market_context)
 
         except Exception as e:
             logger.error(f"融合AI信号失败: {e}")
@@ -247,6 +252,90 @@ class AIFusion:
         """获取提供商评分"""
         return self.provider_scores.copy()
 
+    def _apply_trend_filtering(self, fused_scores: Dict[str, float], signals: List[Dict[str, Any]],
+                              market_context: Dict[str, Any]) -> Dict[str, float]:
+        """应用趋势过滤 - 关键修复"""
+        try:
+            # 获取市场趋势信息
+            trend_direction = market_context.get('trend_direction', 'neutral')
+            trend_strength = market_context.get('trend_strength', 'normal')
+
+            # 只在强势趋势中应用过滤
+            if trend_strength in ['strong', 'extreme']:
+                # 强势下跌趋势中，抑制买入信号
+                if trend_direction == 'down' and fused_scores.get('BUY', 0) > 0:
+                    # 将买入信号降级为HOLD
+                    buy_score = fused_scores['BUY']
+                    fused_scores['HOLD'] = fused_scores.get('HOLD', 0) + buy_score * 0.7  # 70%转为HOLD
+                    fused_scores['BUY'] = buy_score * 0.3  # 保留30%的买入倾向
+                    logger.warning(f"趋势过滤：强势下跌趋势中抑制买入信号 (BUY: {buy_score:.2f} -> {fused_scores['BUY']:.2f})")
+
+                # 强势上涨趋势中，抑制卖出信号
+                elif trend_direction == 'up' and fused_scores.get('SELL', 0) > 0:
+                    sell_score = fused_scores['SELL']
+                    fused_scores['HOLD'] = fused_scores.get('HOLD', 0) + sell_score * 0.7
+                    fused_scores['SELL'] = sell_score * 0.3
+                    logger.warning(f"趋势过滤：强势上涨趋势中抑制卖出信号 (SELL: {sell_score:.2f} -> {fused_scores['SELL']:.2f})")
+
+            return fused_scores
+
+        except Exception as e:
+            logger.error(f"趋势过滤失败: {e}")
+            return fused_scores
+
+    def _apply_provider_bias_correction(self, signals: List[Dict[str, Any]],
+                                       market_context: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """应用提供商偏差纠正 - 增强版"""
+        try:
+            trend_direction = market_context.get('trend_direction', 'neutral')
+            trend_strength = market_context.get('trend_strength', 'normal')
+
+            corrected_signals = []
+
+            for signal in signals:
+                provider = signal.get('provider', 'unknown')
+                confidence = signal.get('confidence', 0.5)
+                signal_type = signal.get('signal', 'HOLD')
+
+                # QWEN特定的偏差纠正
+                if provider == 'qwen':
+                    # QWEN在下跌趋势中容易给出过度乐观的买入信号
+                    if (trend_direction == 'down' and trend_strength in ['strong', 'extreme'] and
+                        signal_type == 'BUY' and confidence > 0.8):
+                        # 降低置信度
+                        new_confidence = confidence * 0.6
+                        signal['confidence'] = new_confidence
+                        signal['original_confidence'] = confidence
+                        signal['bias_correction'] = 'QWEN下跌趋势买入抑制'
+                        logger.warning(f"QWEN偏差纠正：下跌趋势中买入信号置信度 {confidence:.2f} -> {new_confidence:.2f}")
+
+                    # QWEN在上涨趋势中可能过度乐观
+                    elif (trend_direction == 'up' and trend_strength in ['strong', 'extreme'] and
+                          signal_type == 'SELL' and confidence > 0.8):
+                        new_confidence = confidence * 0.7
+                        signal['confidence'] = new_confidence
+                        signal['original_confidence'] = confidence
+                        signal['bias_correction'] = 'QWEN上涨趋势卖出抑制'
+                        logger.warning(f"QWEN偏差纠正：上涨趋势中卖出信号置信度 {confidence:.2f} -> {new_confidence:.2f}")
+
+                # DeepSeek特定的处理（通常更保守）
+                elif provider == 'deepseek':
+                    # DeepSeek在趋势明确时可能过于保守
+                    if (trend_strength in ['strong', 'extreme'] and
+                        signal_type == 'HOLD' and confidence > 0.7):
+                        # 稍微降低HOLD的置信度，让其他信号有更多机会
+                        signal['confidence'] = confidence * 0.9
+                        signal['original_confidence'] = confidence
+                        signal['bias_correction'] = 'DeepSeek趋势期HOLD调整'
+
+                corrected_signals.append(signal)
+
+            return corrected_signals
+
+        except Exception as e:
+            logger.error(f"提供商偏差纠正失败: {e}")
+            return signals
+
     async def _fuse_by_consensus(self, signals: List[Dict[str, Any]], threshold: float) -> Optional[Dict[str, Any]]:
         """共识策略：所有模型达成一致才行动"""
         try:
@@ -356,8 +445,9 @@ class AIFusion:
 
     async def _fuse_by_weighted(self, signals: List[Dict[str, Any]],
                                weights: Optional[Dict[str, float]] = None,
-                               fusion_providers: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
-        """加权平均策略"""
+                               fusion_providers: Optional[List[str]] = None,
+                               market_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """加权平均策略 - 添加趋势过滤"""
         try:
             # 使用提供的权重或默认权重
             if weights:
@@ -369,12 +459,17 @@ class AIFusion:
             # 2. 计算融合分数
             fused_scores = self._calculate_fused_scores(signals, consensus)
 
-            # 3. 确定最终信号
+            # 3. 应用趋势过滤（关键修复）
+            if market_context:
+                fused_scores = self._apply_trend_filtering(fused_scores, signals, market_context)
+
+            # 4. 确定最终信号
             final_signal = self._determine_final_signal(fused_scores, signals)
 
-            # 4. 计算融合置信度
+            # 5. 计算融合置信度
             final_confidence = self._calculate_fused_confidence(signals, consensus)
 
+            # 6. 构建结果，包含趋势信息
             result = {
                 'signal': final_signal,
                 'confidence': final_confidence,
@@ -385,6 +480,12 @@ class AIFusion:
                 'consensus_score': consensus['consensus_score'],
                 'individual_signals': signals
             }
+
+            # 添加趋势过滤信息到原因中
+            if market_context and final_signal != consensus['dominant_signal']:
+                trend_info = market_context.get('trend_direction', 'unknown')
+                trend_strength = market_context.get('trend_strength', 'normal')
+                result['reason'] += f"; 趋势过滤({trend_info}:{trend_strength})已应用"
 
             logger.info(f"加权融合完成: {final_signal} (置信度: {final_confidence:.2f})")
             return result

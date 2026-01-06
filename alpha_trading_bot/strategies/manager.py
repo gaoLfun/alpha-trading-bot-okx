@@ -932,6 +932,27 @@ class StrategyManager(BaseComponent):
                     except Exception as e:
                         logger.error(f"自适应策略参数获取失败: {e}，回退到传统策略")
 
+                # 将市场机制信息添加到market_data中，供AI信号生成使用
+                if self.config.enable_adaptive_strategy and hasattr(self, 'adaptive_strategy'):
+                    current_regime = self.adaptive_strategy.get_current_regime()
+                    if current_regime:
+                        # 添加趋势方向和强度到市场数据
+                        market_data['trend_direction'] = current_regime.regime_type.split('_')[0] if '_' in current_regime.regime_type else 'neutral'
+
+                        # 将数值趋势强度映射为字符串
+                        if current_regime.trend_strength >= 0.7:
+                            trend_strength = 'extreme'
+                        elif current_regime.trend_strength >= 0.5:
+                            trend_strength = 'strong'
+                        else:
+                            trend_strength = 'normal'
+
+                        market_data['trend_strength'] = trend_strength
+                        market_data['regime_type'] = current_regime.regime_type
+                        market_data['regime_confidence'] = current_regime.regime_confidence
+
+                        logger.info(f"📊 当前市场环境: {current_regime.regime_type} (强度: {trend_strength}, 置信度: {current_regime.regime_confidence:.2f})")
+
                 # 如果自适应策略未生成信号，使用传统策略作为回退
                 if not any(s.get('source') == 'adaptive_strategy' for s in signals):
                     # 根据投资类型生成对应的策略信号

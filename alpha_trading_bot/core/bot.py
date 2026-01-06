@@ -728,8 +728,7 @@ class TradingBot(BaseComponent):
                             executed_trades += 1
                     self.enhanced_logger.logger.info(f"✅ 交易执行完成，成功执行 {executed_trades}/{len(trades)} 笔交易")
 
-                    # 在15分钟周期内执行标记的TP/SL更新
-                    # 先更新仓位信息，确保获取最新数据
+                    # 统一处理止盈止损 - 无论是否有交易信号都执行一次
                     self.enhanced_logger.logger.info("📊 更新仓位信息...")
                     await self.trading_engine.position_manager.update_position(self.trading_engine.exchange_client, "BTC/USDT:USDT")
 
@@ -740,55 +739,14 @@ class TradingBot(BaseComponent):
                             if position and position.amount != 0:
                                 symbol = position.symbol
 
-                                # 监控已成交的多级止盈订单
-                                try:
-                                    self.enhanced_logger.logger.info(f"🔍 监控 {symbol} 的多级止盈订单状态...")
-                                    await self.trading_engine.trade_executor.monitor_filled_tp_orders(symbol)
-                                except Exception as e:
-                                    self.enhanced_logger.logger.error(f"监控 {symbol} 的止盈订单失败: {e}")
-
-                                # 使用统一的止盈止损管理函数
-                                self.enhanced_logger.logger.info(f"检查 {symbol} 的止盈止损订单状态")
+                                # 统一使用manage_tp_sl_orders处理所有止盈止损需求
+                                self.enhanced_logger.logger.info(f"统一检查 {symbol} 的止盈止损订单状态")
                                 try:
                                     await self.trading_engine.trade_executor.manage_tp_sl_orders(symbol, position)
                                 except Exception as e:
                                     self.enhanced_logger.logger.error(f"为 {symbol} 检查止盈止损订单失败: {e}")
                     else:
-                        self.enhanced_logger.logger.info("当前没有持仓，跳过15分钟周期内TP/SL更新")
-                else:
-                    self.enhanced_logger.logger.info("ℹ️ 无交易信号通过风险评估")
-
-                    # 检查持仓是否需要创建缺失的止盈止损订单
-                    self.enhanced_logger.logger.info("🔍 检查持仓是否需要创建止盈止损订单...")
-                    # 先更新仓位信息，确保获取最新数据
-                    self.enhanced_logger.logger.info("📊 更新仓位信息...")
-                    await self.trading_engine.position_manager.update_position(self.trading_engine.exchange_client, "BTC/USDT:USDT")
-
-                    positions = self.trading_engine.position_manager.get_all_positions()
-                    if positions:
-                        for position in positions:
-                            if position and position.amount > 0:
-                                symbol = position.symbol
-                                try:
-                                    # 监控已成交的多级止盈订单
-                                    self.enhanced_logger.logger.info(f"🔍 监控 {symbol} 的多级止盈订单状态...")
-                                    await self.trading_engine.trade_executor.monitor_filled_tp_orders(symbol)
-
-                                    # 检查并创建缺失的止盈止损订单
-                                    await self.trading_engine.trade_executor.check_and_create_missing_tp_sl(symbol, position)
-
-                                    # 同时更新现有止盈止损订单（实现追踪止损）
-                                    self.enhanced_logger.logger.info(f"🔍 检查是否需要更新 {symbol} 的追踪止损...")
-                                    if self.trading_engine.trade_executor.config.enable_tp_sl:
-                                        await self.trading_engine.trade_executor._check_and_update_tp_sl(
-                                            symbol,
-                                            position.side,
-                                            position
-                                        )
-                                except Exception as e:
-                                    self.enhanced_logger.logger.error(f"为 {symbol} 处理止盈止损订单失败: {e}")
-                    else:
-                        self.enhanced_logger.logger.info("当前没有持仓，无需检查止盈止损订单")
+                        self.enhanced_logger.logger.info("当前没有持仓，跳过止盈止损检查")
             else:
                 self.enhanced_logger.logger.info("⚠️ 风险评估不通过，跳过交易")
 
