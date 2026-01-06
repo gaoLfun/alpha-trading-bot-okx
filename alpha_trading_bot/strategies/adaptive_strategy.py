@@ -89,7 +89,12 @@ class AdaptiveStrategy:
             # 5. 根据账户状态调整
             final_params = self._adjust_for_account_state(final_params, account_balance, position_size)
 
-            # 6. 记录参数历史
+            # 6. 添加推荐策略类型（从市场机制检测器获取）
+            final_params['recommended_strategy'] = regime.recommended_strategy
+            final_params['regime_type'] = regime.regime_type
+            final_params['regime_confidence'] = regime.regime_confidence
+
+            # 7. 记录参数历史
             self._record_parameters(regime.regime_type, final_params)
 
             logger.info(f"最终策略参数: {final_params}")
@@ -299,7 +304,10 @@ class AdaptiveStrategy:
             'take_profit_pct': 0.06,  # 6%
             'position_size_multiplier': 1.0,
             'trailing_stop_distance': 0.02,  # 2%
-            'entry_confidence': 0.6
+            'entry_confidence': 0.6,
+            'recommended_strategy': 'trend_following',
+            'regime_type': 'unknown',
+            'regime_confidence': 0.5
         }
 
     def get_performance_summary(self) -> Dict[str, Any]:
