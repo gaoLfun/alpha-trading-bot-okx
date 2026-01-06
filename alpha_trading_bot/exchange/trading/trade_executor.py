@@ -809,26 +809,29 @@ class TradeExecutor(BaseComponent):
             current_sl_price = None
 
             for order in existing_algo_orders:
-                # 根据订单价格相对于当前价格判断是止盈还是止损
+                # 正确识别止损订单 - 基于订单方向而不是价格位置
                 order_price = float(order.price)
                 order_status = order.status.value if order.status else ''
                 order_side = order.side.value if order.side else ''
 
-                # 只处理活动的止损订单
+                # 只处理活动的订单
                 if order_status in ['open', 'pending']:
+                    # 识别止损订单：方向与持仓方向相反
                     if position.side == TradeSide.LONG:
-                        # 多头：价格低于当前价的是止损（卖出方向的止损订单）
-                        if order_price < current_price and order_side == 'sell':
+                        # 多头持仓：卖出方向的订单就是止损订单（无论价格高低）
+                        if order_side == 'sell':
                             has_sl = True
                             existing_sl_order = order
                             current_sl_price = order_price
+                            logger.info(f"识别到多头止损订单: ID={order.order_id}, 价格=${order_price}, 方向={order_side}")
                             break
                     else:
-                        # 空头：价格高于当前价的是止损（买入方向的止损订单）
-                        if order_price > current_price and order_side == 'buy':
+                        # 空头持仓：买入方向的订单就是止损订单（无论价格高低）
+                        if order_side == 'buy':
                             has_sl = True
                             existing_sl_order = order
                             current_sl_price = order_price
+                            logger.info(f"识别到空头止损订单: ID={order.order_id}, 价格=${order_price}, 方向={order_side}")
                             break
 
             # 计算新的止损价格
@@ -857,7 +860,7 @@ class TradeExecutor(BaseComponent):
                 # 转换持仓方向为字符串
                 position_side_str = 'long' if position.side == TradeSide.LONG else 'short'
 
-                result = await self.dynamic_stop_loss.calculate_stop_loss(
+                result = self.dynamic_stop_loss.calculate_stop_loss(
                     entry_price=entry_price,
                     current_price=current_price,
                     atr_14=atr_14,
@@ -963,11 +966,11 @@ class TradeExecutor(BaseComponent):
 
                 # 只检查活动的订单
                 if order_status in ['open', 'pending']:
-                    # 根据订单方向和价格判断是否为同类止损订单
-                    if ((side == TradeSide.SELL and order_side == 'sell' and order_price < current_price) or
-                        (side == TradeSide.BUY and order_side == 'buy' and order_price > current_price)):
-                        logger.info(f"{symbol} 已存在止损订单，跳过创建 (订单ID: {order.order_id})")
-                        return OrderResult(success=False, error_message="已存在止损订单")
+                    # 根据订单方向判断是否为同类止损订单 - 移除价格判断
+                    if ((side == TradeSide.SELL and order_side == 'sell') or
+                        (side == TradeSide.BUY and order_side == 'buy')):
+                        logger.info(f"{symbol} 已存在同方向止损订单，跳过创建 (订单ID: {order.order_id}, 价格=${order_price})")
+                        return OrderResult(success=False, error_message="已存在同方向止损订单")
 
             # 标记正在创建
             self._creating_orders.add(order_key)
