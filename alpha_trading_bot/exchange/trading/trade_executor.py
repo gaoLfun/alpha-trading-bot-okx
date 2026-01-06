@@ -834,27 +834,51 @@ class TradeExecutor(BaseComponent):
             # 计算新的止损价格
             new_stop_loss = None
             if config.strategies.stop_loss_enabled:
+                # 获取市场数据计算ATR
+                try:
+                    ohlcv_data = await self.exchange_client.fetch_ohlcv(symbol, config.exchange.timeframe, limit=20)
+                    if ohlcv_data and len(ohlcv_data) >= 14:
+                        from ...utils.technical import TechnicalIndicators
+                        tech_indicators = TechnicalIndicators()
+                        high_prices = [d[2] for d in ohlcv_data]
+                        low_prices = [d[3] for d in ohlcv_data]
+                        close_prices = [d[4] for d in ohlcv_data]
+                        atr_14_list = tech_indicators.calculate_atr(high_prices, low_prices, close_prices, period=14)
+                        atr_14 = atr_14_list[-1] if atr_14_list else 0
+                    else:
+                        atr_14 = 0
+                except Exception as e:
+                    logger.warning(f"计算ATR失败: {e}，使用默认值0")
+                    atr_14 = 0
+
                 # 使用动态止损计算
                 entry_price = position.entry_price or current_price
-                new_stop_loss = await self.dynamic_stop_loss.calculate_stop_loss(
-                    symbol=symbol,
+
+                # 转换持仓方向为字符串
+                position_side_str = 'long' if position.side == TradeSide.LONG else 'short'
+
+                result = await self.dynamic_stop_loss.calculate_stop_loss(
                     entry_price=entry_price,
                     current_price=current_price,
-                    side=position.side,
-                    atr_multiplier=2.0
+                    atr_14=atr_14,
+                    symbol=symbol,
+                    position_side=position_side_str,
+                    market_volatility='normal',
+                    account_risk_pct=0.02
                 )
 
-                # 根据入场价差异化策略调整
-                if entry_price and current_price:
-                    if (position.side == TradeSide.LONG and current_price > entry_price) or \
-                       (position.side == TradeSide.SHORT and current_price < entry_price):
-                        # 价格高于入场价，使用0.2%跟踪止损
-                        new_stop_loss = entry_price * 0.998 if position.side == TradeSide.LONG else entry_price * 1.002
-                        logger.info(f"价格高于入场价，使用0.2%跟踪止损: ${new_stop_loss:.2f}")
+                # 从结果中获取止损价格
+                new_stop_loss = result.get('stop_loss_price', 0) if isinstance(result, dict) else 0
+
+                if new_stop_loss > 0:
+                    logger.info(f"动态止损计算完成: ${new_stop_loss:.2f}")
+                else:
+                    logger.warning("动态止损计算失败，使用固定止损")
+                    # 如果动态计算失败，使用固定百分比
+                    if position.side == TradeSide.LONG:
+                        new_stop_loss = entry_price * 0.98  # 2%止损
                     else:
-                        # 价格低于入场价，使用0.5%固定止损
-                        new_stop_loss = entry_price * 0.995 if position.side == TradeSide.LONG else entry_price * 1.005
-                        logger.info(f"价格低于入场价，使用0.5%固定止损: ${new_stop_loss:.2f}")
+                        new_stop_loss = entry_price * 1.02  # 2%止损
 
             # 确定止损方向
             sl_side = TradeSide.SELL if position.side == TradeSide.LONG else TradeSide.BUY
