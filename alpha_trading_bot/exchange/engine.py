@@ -14,22 +14,38 @@ from ..core.base import BaseComponent, BaseConfig
 from ..core.exceptions import TradingBotException
 from .client import ExchangeClient
 from .models import (
-    OrderResult, PositionInfo, TradeResult, ExchangeConfig,
-    OrderStatus, TradeSide, RiskAssessmentResult,
-    MarketOrderRequest, LimitOrderRequest, TPSLRequest
+    OrderResult,
+    PositionInfo,
+    TradeResult,
+    ExchangeConfig,
+    OrderStatus,
+    TradeSide,
+    RiskAssessmentResult,
+    MarketOrderRequest,
+    LimitOrderRequest,
+    TPSLRequest,
 )
-from .trading import OrderManager, PositionManager, RiskManager, TradeExecutor, TradeExecutorConfig
+from .trading import (
+    OrderManager,
+    PositionManager,
+    RiskManager,
+    TradeExecutor,
+    TradeExecutorConfig,
+)
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class TradingEngineConfig(BaseConfig):
     """交易引擎配置"""
+
     enable_trading: bool = True
     test_mode: bool = False
     max_daily_trades: int = 50
     enable_auto_close: bool = True
     trading_hours_only: bool = False
+
 
 class TradingEngine(BaseComponent):
     """交易引擎主类"""
@@ -43,6 +59,7 @@ class TradingEngine(BaseComponent):
 
         # 加载主配置以获取策略设置
         from ..config import load_config
+
         self.main_config = load_config()
 
         # 创建组件实例
@@ -53,14 +70,17 @@ class TradingEngine(BaseComponent):
 
         # 创建交易执行器配置
         executor_config = TradeExecutorConfig(name="TradeExecutor")
-        executor_config.enable_tp_sl = self.main_config.strategies.take_profit_enabled or self.main_config.strategies.stop_loss_enabled
+        executor_config.enable_tp_sl = (
+            self.main_config.strategies.take_profit_enabled
+            or self.main_config.strategies.stop_loss_enabled
+        )
 
         self.trade_executor = TradeExecutor(
             self.exchange_client,
             self.order_manager,
             self.position_manager,
             self.risk_manager,
-            executor_config
+            executor_config,
         )
 
         # 状态管理
@@ -77,6 +97,7 @@ class TradingEngine(BaseComponent):
             # 初始化数据管理器
             try:
                 from ..data import create_data_manager
+
                 self.data_manager = await create_data_manager()
                 logger.info("数据管理器初始化成功")
             except Exception as e:
@@ -133,6 +154,7 @@ class TradingEngine(BaseComponent):
             # 测试模式下使用模拟数据
             if self.config.test_mode:
                 import random
+
                 base_price = 50000.0
                 price_variation = random.uniform(-0.01, 0.01)
                 current_price = base_price * (1 + price_variation)
@@ -159,7 +181,10 @@ class TradingEngine(BaseComponent):
 
                 # 生成100根15分钟K线数据
                 for i in range(100):
-                    timestamp = int(datetime.now().timestamp() * 1000) - (100 - i) * 15 * 60 * 1000
+                    timestamp = (
+                        int(datetime.now().timestamp() * 1000)
+                        - (100 - i) * 15 * 60 * 1000
+                    )
                     if i == 0:
                         open_price = base_price
                     else:
@@ -171,7 +196,16 @@ class TradingEngine(BaseComponent):
                     close_price = open_price * (1 + random.uniform(-0.005, 0.005))
                     volume = random.uniform(100, 1000)
 
-                    ohlcv_data.append([timestamp, open_price, high_price, low_price, close_price, volume])
+                    ohlcv_data.append(
+                        [
+                            timestamp,
+                            open_price,
+                            high_price,
+                            low_price,
+                            close_price,
+                            volume,
+                        ]
+                    )
                     timestamps.append(timestamp)
                     opens.append(open_price)
                     highs.append(high_price)
@@ -180,53 +214,67 @@ class TradingEngine(BaseComponent):
                     volumes.append(volume)
 
                 # 计算24小时平均成交量
-                avg_volume_24h = sum(volumes) / len(volumes) if volumes else random.uniform(500, 2000)
+                avg_volume_24h = (
+                    sum(volumes) / len(volumes)
+                    if volumes
+                    else random.uniform(500, 2000)
+                )
 
                 market_data = {
-                    'symbol': symbol,
-                    'price': current_price,
-                    'bid': current_price - 10,
-                    'ask': current_price + 10,
-                    'volume': random.uniform(100, 1000),
-                    'avg_volume_24h': avg_volume_24h,  # 添加24小时平均成交量
-                    'high': current_price * 1.02,
-                    'low': current_price * 0.98,
-                    'timestamp': datetime.now(),
-                    'orderbook': {
-                        'bids': bids,  # 前10档买单
-                        'asks': asks   # 前10档卖单
+                    "symbol": symbol,
+                    "price": current_price,
+                    "bid": current_price - 10,
+                    "ask": current_price + 10,
+                    "volume": random.uniform(100, 1000),
+                    "avg_volume_24h": avg_volume_24h,  # 添加24小时平均成交量
+                    "high": current_price * 1.02,
+                    "low": current_price * 0.98,
+                    "timestamp": datetime.now(),
+                    "orderbook": {
+                        "bids": bids,  # 前10档买单
+                        "asks": asks,  # 前10档卖单
                     },
                     # 添加OHLCV数据（使用不同的键名避免冲突）
-                    'ohlcv': ohlcv_data,
-                    'timestamps': timestamps,
-                    'open_prices': opens,
-                    'high_prices': highs,
-                    'low_prices': lows,
-                    'close_prices': closes,
-                    'volumes': volumes,
-                    'period': '15m',
-                    'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
-                    'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else '',
+                    "ohlcv": ohlcv_data,
+                    "timestamps": timestamps,
+                    "open_prices": opens,
+                    "high_prices": highs,
+                    "low_prices": lows,
+                    "close_prices": closes,
+                    "volumes": volumes,
+                    "period": "15m",
+                    "change_percent": ((closes[-1] - closes[-2]) / closes[-2] * 100)
+                    if len(closes) >= 2
+                    else 0,
+                    "last_kline_time": datetime.fromtimestamp(
+                        timestamps[-1] / 1000
+                    ).isoformat()
+                    if timestamps
+                    else "",
                     # 7日价格区间数据（测试模式使用估算值）
-                    'high_7d': current_price * 1.05,  # 测试模式下7日最高价估算
-                    'low_7d': current_price * 0.95    # 测试模式下7日最低价估算
+                    "high_7d": current_price * 1.05,  # 测试模式下7日最高价估算
+                    "low_7d": current_price * 0.95,  # 测试模式下7日最低价估算
                 }
 
                 # 保存市场数据快照
                 if self.data_manager:
                     try:
                         market_snapshot = {
-                            'symbol': symbol,
-                            'price': current_price,
-                            'bid': current_price - 10,
-                            'ask': current_price + 10,
-                            'volume': random.uniform(100, 1000),
-                            'high': current_price * 1.02,
-                            'low': current_price * 0.98,
-                            'open': opens[-1] if opens else current_price,
-                            'close': closes[-1] if closes else current_price,
-                            'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
-                            'market_state': 'normal'
+                            "symbol": symbol,
+                            "price": current_price,
+                            "bid": current_price - 10,
+                            "ask": current_price + 10,
+                            "volume": random.uniform(100, 1000),
+                            "high": current_price * 1.02,
+                            "low": current_price * 0.98,
+                            "open": opens[-1] if opens else current_price,
+                            "close": closes[-1] if closes else current_price,
+                            "change_percent": (
+                                (closes[-1] - closes[-2]) / closes[-2] * 100
+                            )
+                            if len(closes) >= 2
+                            else 0,
+                            "market_state": "normal",
                         }
                         await self.data_manager.save_market_data(market_snapshot)
                     except Exception as e:
@@ -234,9 +282,41 @@ class TradingEngine(BaseComponent):
 
                 return market_data
 
-            # 正常模式：从交易所获取真实数据
-            ticker = await self.exchange_client.fetch_ticker(symbol)
-            orderbook = await self.exchange_client.fetch_order_book(symbol)
+            # 正常模式：从交易所获取真实数据 - 并行获取基础市场数据
+            try:
+                # 并行获取ticker和orderbook
+                tasks = [
+                    self.exchange_client.fetch_ticker(symbol),
+                    self.exchange_client.fetch_order_book(symbol),
+                ]
+                ticker_orderbook_results = await asyncio.gather(
+                    *tasks, return_exceptions=True
+                )
+
+                ticker = ticker_orderbook_results[0]
+                orderbook = ticker_orderbook_results[1]
+
+                # 检查获取结果
+                if isinstance(ticker, Exception):
+                    logger.error(f"获取ticker失败: {ticker}")
+                    ticker = None
+                if isinstance(orderbook, Exception):
+                    logger.error(f"获取orderbook失败: {orderbook}")
+                    orderbook = None
+
+                # 如果关键数据获取失败，抛出异常
+                if ticker is None:
+                    raise Exception("无法获取ticker数据")
+
+            except Exception as e:
+                logger.error(f"并行获取基础市场数据失败: {e}")
+                # 尝试串行获取作为备用
+                try:
+                    ticker = await self.exchange_client.fetch_ticker(symbol)
+                    orderbook = await self.exchange_client.fetch_order_book(symbol)
+                except Exception as fallback_error:
+                    logger.error(f"串行备用获取也失败: {fallback_error}")
+                    raise
 
             # 获取OHLCV数据用于技术指标计算
             ohlcv_data = []
@@ -262,10 +342,18 @@ class TradingEngine(BaseComponent):
                 try:
                     # 创建并发任务
                     tasks = [
-                        self.exchange_client.fetch_ohlcv(symbol, timeframe='15m', limit=100),  # 主时间框架
-                        self.exchange_client.fetch_ohlcv(symbol, timeframe='1h', limit=50),    # 次要时间框架
-                        self.exchange_client.fetch_ohlcv(symbol, timeframe='4h', limit=30),    # 长期时间框架
-                        self.exchange_client.fetch_ohlcv(symbol, timeframe='1d', limit=30)     # 日线数据，用于计算7日区间
+                        self.exchange_client.fetch_ohlcv(
+                            symbol, timeframe="15m", limit=100
+                        ),  # 主时间框架
+                        self.exchange_client.fetch_ohlcv(
+                            symbol, timeframe="1h", limit=50
+                        ),  # 次要时间框架
+                        self.exchange_client.fetch_ohlcv(
+                            symbol, timeframe="4h", limit=30
+                        ),  # 长期时间框架
+                        self.exchange_client.fetch_ohlcv(
+                            symbol, timeframe="1d", limit=30
+                        ),  # 日线数据，用于计算7日区间
                     ]
 
                     # 并行执行所有任务
@@ -273,7 +361,11 @@ class TradingEngine(BaseComponent):
 
                     # 处理15分钟K线（主时间框架）
                     ohlcv_15m = ohlcv_results[0]
-                    if not isinstance(ohlcv_15m, Exception) and ohlcv_15m and len(ohlcv_15m) >= 50:
+                    if (
+                        not isinstance(ohlcv_15m, Exception)
+                        and ohlcv_15m
+                        and len(ohlcv_15m) >= 50
+                    ):
                         ohlcv_data = ohlcv_15m
                         timestamps = [candle[0] for candle in ohlcv_15m]
                         opens = [candle[1] for candle in ohlcv_15m]
@@ -281,56 +373,98 @@ class TradingEngine(BaseComponent):
                         lows = [candle[3] for candle in ohlcv_15m]
                         closes = [candle[4] for candle in ohlcv_15m]
                         volumes = [candle[5] for candle in ohlcv_15m]
-                        multi_timeframe_data['15m'] = ohlcv_15m
+                        multi_timeframe_data["15m"] = ohlcv_15m
                         logger.info(f"成功获取15分钟K线数据: {len(ohlcv_15m)} 根")
                     else:
-                        error_msg = str(ohlcv_15m) if isinstance(ohlcv_15m, Exception) else "数据不足"
+                        error_msg = (
+                            str(ohlcv_15m)
+                            if isinstance(ohlcv_15m, Exception)
+                            else "数据不足"
+                        )
                         logger.warning(f"15分钟K线数据获取失败: {error_msg}")
 
                     # 处理1小时K线
                     ohlcv_1h = ohlcv_results[1]
-                    if not isinstance(ohlcv_1h, Exception) and ohlcv_1h and len(ohlcv_1h) >= 20:
-                        multi_timeframe_data['1h'] = ohlcv_1h
+                    if (
+                        not isinstance(ohlcv_1h, Exception)
+                        and ohlcv_1h
+                        and len(ohlcv_1h) >= 20
+                    ):
+                        multi_timeframe_data["1h"] = ohlcv_1h
                         logger.info(f"成功获取1小时K线数据: {len(ohlcv_1h)} 根")
                     else:
-                        error_msg = str(ohlcv_1h) if isinstance(ohlcv_1h, Exception) else "数据不足"
+                        error_msg = (
+                            str(ohlcv_1h)
+                            if isinstance(ohlcv_1h, Exception)
+                            else "数据不足"
+                        )
                         logger.debug(f"1小时K线数据获取失败: {error_msg}")
 
                     # 处理4小时K线
                     ohlcv_4h = ohlcv_results[2]
-                    if not isinstance(ohlcv_4h, Exception) and ohlcv_4h and len(ohlcv_4h) >= 15:
-                        multi_timeframe_data['4h'] = ohlcv_4h
+                    if (
+                        not isinstance(ohlcv_4h, Exception)
+                        and ohlcv_4h
+                        and len(ohlcv_4h) >= 15
+                    ):
+                        multi_timeframe_data["4h"] = ohlcv_4h
                         logger.info(f"成功获取4小时K线数据: {len(ohlcv_4h)} 根")
                     else:
-                        error_msg = str(ohlcv_4h) if isinstance(ohlcv_4h, Exception) else "数据不足"
+                        error_msg = (
+                            str(ohlcv_4h)
+                            if isinstance(ohlcv_4h, Exception)
+                            else "数据不足"
+                        )
                         logger.debug(f"4小时K线数据获取失败: {error_msg}")
 
                     # 处理日线K线（用于计算7日价格区间）
                     ohlcv_1d = ohlcv_results[3]
-                    if not isinstance(ohlcv_1d, Exception) and ohlcv_1d and len(ohlcv_1d) >= 7:
-                        multi_timeframe_data['1d'] = ohlcv_1d
+                    if (
+                        not isinstance(ohlcv_1d, Exception)
+                        and ohlcv_1d
+                        and len(ohlcv_1d) >= 7
+                    ):
+                        multi_timeframe_data["1d"] = ohlcv_1d
                         logger.info(f"成功获取日线K线数据: {len(ohlcv_1d)} 根")
 
                         # 计算7日价格区间（最近7天）
                         recent_7d = ohlcv_1d[-7:]  # 取最近7天
                         high_7d = max(candle[2] for candle in recent_7d)  # 7日最高价
-                        low_7d = min(candle[3] for candle in recent_7d)   # 7日最低价
+                        low_7d = min(candle[3] for candle in recent_7d)  # 7日最低价
                         logger.info(f"📊 7日价格区间: ${low_7d:,.2f} - ${high_7d:,.2f}")
-                        logger.debug(f"[DEBUG] 7日数据已计算 - high_7d: ${high_7d:,.2f}, low_7d: ${low_7d:,.2f}")
+                        logger.debug(
+                            f"[DEBUG] 7日数据已计算 - high_7d: ${high_7d:,.2f}, low_7d: ${low_7d:,.2f}"
+                        )
                     else:
-                        error_msg = str(ohlcv_1d) if isinstance(ohlcv_1d, Exception) else "数据不足"
+                        error_msg = (
+                            str(ohlcv_1d)
+                            if isinstance(ohlcv_1d, Exception)
+                            else "数据不足"
+                        )
                         logger.warning(f"日线K线数据获取失败: {error_msg}")
                         # 使用估算值
-                        high_7d = float(ticker.high) if ticker.high else current_price * 1.05
-                        low_7d = float(ticker.low) if ticker.low else current_price * 0.95
-                        logger.warning(f"使用估算值作为7日价格区间: ${low_7d:,.2f} - ${high_7d:,.2f}")
-                        logger.debug(f"[DEBUG] 7日数据使用估算值 - high_7d: ${high_7d:,.2f}, low_7d: ${low_7d:,.2f}")
+                        high_7d = (
+                            float(ticker.high) if ticker.high else current_price * 1.05
+                        )
+                        low_7d = (
+                            float(ticker.low) if ticker.low else current_price * 0.95
+                        )
+                        logger.warning(
+                            f"使用估算值作为7日价格区间: ${low_7d:,.2f} - ${high_7d:,.2f}"
+                        )
+                        logger.debug(
+                            f"[DEBUG] 7日数据使用估算值 - high_7d: ${high_7d:,.2f}, low_7d: ${low_7d:,.2f}"
+                        )
 
                 except Exception as e:
-                    logger.warning(f"并行获取OHLCV数据失败: {type(e).__name__}: {e}，将使用基础数据")
+                    logger.warning(
+                        f"并行获取OHLCV数据失败: {type(e).__name__}: {e}，将使用基础数据"
+                    )
 
             except Exception as e:
-                logger.warning(f"获取OHLCV数据失败: {type(e).__name__}: {e}，将使用基础数据")
+                logger.warning(
+                    f"获取OHLCV数据失败: {type(e).__name__}: {e}，将使用基础数据"
+                )
 
             # 如果没有获取到K线数据，生成模拟数据用于技术指标计算
             if not ohlcv_data and ticker.last > 0:
@@ -348,9 +482,20 @@ class TradingEngine(BaseComponent):
                     close_price = base_price * (1 + (i - 49) * random_factor / 50)
                     high_price = max(open_price, close_price) * (1 + random_factor)
                     low_price = min(open_price, close_price) * (1 - random_factor)
-                    volume = float(ticker.volume) / 100 if ticker.volume else base_price * 0.1
+                    volume = (
+                        float(ticker.volume) / 100
+                        if ticker.volume
+                        else base_price * 0.1
+                    )
 
-                    candle = [timestamp, open_price, high_price, low_price, close_price, volume]
+                    candle = [
+                        timestamp,
+                        open_price,
+                        high_price,
+                        low_price,
+                        close_price,
+                        volume,
+                    ]
                     ohlcv_data.append(candle)
                     timestamps.append(timestamp)
                     opens.append(open_price)
@@ -362,9 +507,16 @@ class TradingEngine(BaseComponent):
                 logger.info(f"生成了 {len(ohlcv_data)} 根模拟K线数据")
 
             # 计算24小时平均成交量 - 增强版
-            avg_volume_24h = sum(volumes) / len(volumes) if volumes else (
-                ticker.volume if ticker.volume and ticker.volume > 0 else
-                (float(ticker.last) * 0.1 if ticker.last > 0 else 100)  # 备用估算
+            avg_volume_24h = (
+                sum(volumes) / len(volumes)
+                if volumes
+                else (
+                    ticker.volume
+                    if ticker.volume and ticker.volume > 0
+                    else (
+                        float(ticker.last) * 0.1 if ticker.last > 0 else 100
+                    )  # 备用估算
+                )
             )
 
             # 如果所有数据源都失败，使用备用方案
@@ -382,8 +534,8 @@ class TradingEngine(BaseComponent):
                 atr_sum = 0
                 for i in range(1, len(closes)):
                     high_low = highs[i] - lows[i]
-                    high_close = abs(highs[i] - closes[i-1])
-                    low_close = abs(lows[i] - closes[i-1])
+                    high_close = abs(highs[i] - closes[i - 1])
+                    low_close = abs(lows[i] - closes[i - 1])
                     atr_sum += max(high_low, high_close, low_close)
                 atr_value = atr_sum / (len(closes) - 1) if len(closes) > 1 else 0
             else:
@@ -392,10 +544,14 @@ class TradingEngine(BaseComponent):
 
             # 计算ATR相关指标用于详细输出
             current_price = float(ticker.last) if ticker.last else 0
-            atr_percentage = (atr_value / current_price * 100) if current_price > 0 else 0
+            atr_percentage = (
+                (atr_value / current_price * 100) if current_price > 0 else 0
+            )
 
-            logger.info(f"市场数据汇总 - 价格: ${ticker.last}, 24h成交量: {ticker.volume}, "
-                       f"平均成交量: {avg_volume_24h:.2f}, ATR: {atr_value:.2f}")
+            logger.info(
+                f"市场数据汇总 - 价格: ${ticker.last}, 24h成交量: {ticker.volume}, "
+                f"平均成交量: {avg_volume_24h:.2f}, ATR: {atr_value:.2f}"
+            )
 
             # 详细ATR数据输出
             logger.info(f"📊 ATR详细数据:")
@@ -404,43 +560,57 @@ class TradingEngine(BaseComponent):
             logger.info(f"  🎯 当前价格: ${current_price:.2f}")
             logger.info(f"  📏 24h最高价: ${ticker.high}")
             logger.info(f"  📏 24h最低价: ${ticker.low}")
-            logger.info(f"  📐 24h价格区间: ${float(ticker.high) - float(ticker.low):.2f} USDT")
-            logger.info(f"  💹 24h价格振幅: {((float(ticker.high) - float(ticker.low)) / current_price * 100):.2f}%")
+            logger.info(
+                f"  📐 24h价格区间: ${float(ticker.high) - float(ticker.low):.2f} USDT"
+            )
+            logger.info(
+                f"  💹 24h价格振幅: {((float(ticker.high) - float(ticker.low)) / current_price * 100):.2f}%"
+            )
 
             return {
-                'symbol': symbol,
-                'price': ticker.last,
-                'bid': ticker.bid,
-                'ask': ticker.ask,
-                'volume': ticker.volume,
-                'volume_24h': ticker.volume,  # 显式的24小时成交量字段
-                'avg_volume_24h': avg_volume_24h,  # 计算的平均成交量
-                'high': ticker.high,
-                'low': ticker.low,
-                'timestamp': datetime.now(),
-                'orderbook': {
-                    'bids': orderbook.bids[:10],  # 前10档买单
-                    'asks': orderbook.asks[:10]   # 前10档卖单
+                "symbol": symbol,
+                "price": ticker.last,
+                "bid": ticker.bid,
+                "ask": ticker.ask,
+                "volume": ticker.volume,
+                "volume_24h": ticker.volume,  # 显式的24小时成交量字段
+                "avg_volume_24h": avg_volume_24h,  # 计算的平均成交量
+                "high": ticker.high,
+                "low": ticker.low,
+                "timestamp": datetime.now(),
+                "orderbook": {
+                    "bids": orderbook.bids[:10],  # 前10档买单
+                    "asks": orderbook.asks[:10],  # 前10档卖单
                 },
                 # 添加OHLCV数据（使用不同的键名避免冲突）
-                'ohlcv': ohlcv_data,
-                'timestamps': timestamps,
-                'open_prices': opens,
-                'high_prices': highs,
-                'low_prices': lows,
-                'close_prices': closes,
-                'volumes': volumes,
-                'period': '15m',
-                'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
-                'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else '',
+                "ohlcv": ohlcv_data,
+                "timestamps": timestamps,
+                "open_prices": opens,
+                "high_prices": highs,
+                "low_prices": lows,
+                "close_prices": closes,
+                "volumes": volumes,
+                "period": "15m",
+                "change_percent": ((closes[-1] - closes[-2]) / closes[-2] * 100)
+                if len(closes) >= 2
+                else 0,
+                "last_kline_time": datetime.fromtimestamp(
+                    timestamps[-1] / 1000
+                ).isoformat()
+                if timestamps
+                else "",
                 # 技术指标数据
-                'atr': atr_value,  # ATR绝对值
-                'atr_percentage': atr_percentage,  # ATR百分比
+                "atr": atr_value,  # ATR绝对值
+                "atr_percentage": atr_percentage,  # ATR百分比
                 # 7日价格区间数据
-                'high_7d': high_7d if 'high_7d' in locals() else (float(ticker.high) if ticker.high else current_price * 1.05),
-                'low_7d': low_7d if 'low_7d' in locals() else (float(ticker.low) if ticker.low else current_price * 0.95),
+                "high_7d": high_7d
+                if "high_7d" in locals()
+                else (float(ticker.high) if ticker.high else current_price * 1.05),
+                "low_7d": low_7d
+                if "low_7d" in locals()
+                else (float(ticker.low) if ticker.low else current_price * 0.95),
                 # 多时间框架数据
-                'multi_timeframe': multi_timeframe_data
+                "multi_timeframe": multi_timeframe_data,
             }
         except Exception as e:
             logger.error(f"获取市场数据失败: {e}")
@@ -453,8 +623,7 @@ class TradingEngine(BaseComponent):
             risk_result = await self.risk_manager.assess_trade_risk(trade_request)
             if not risk_result.can_execute:
                 return TradeResult(
-                    success=False,
-                    error_message=f"风险评估未通过: {risk_result.reason}"
+                    success=False, error_message=f"风险评估未通过: {risk_result.reason}"
                 )
 
             # 执行交易
@@ -464,24 +633,30 @@ class TradingEngine(BaseComponent):
             if result.success:
                 self.daily_trade_count += 1
                 self.last_trade_time = datetime.now()
-                self.engine_stats['total_trades'] = self.engine_stats.get('total_trades', 0) + 1
-                self.engine_stats['total_volume'] = self.engine_stats.get('total_volume', 0) + trade_request.get('amount', 0)
+                self.engine_stats["total_trades"] = (
+                    self.engine_stats.get("total_trades", 0) + 1
+                )
+                self.engine_stats["total_volume"] = self.engine_stats.get(
+                    "total_volume", 0
+                ) + trade_request.get("amount", 0)
 
                 # 保存交易记录到数据管理器
                 if self.data_manager:
                     try:
                         trade_data = {
-                            'symbol': trade_request.get('symbol', ''),
-                            'side': trade_request.get('side', ''),
-                            'price': result.price or trade_request.get('price', 0),
-                            'amount': trade_request.get('amount', 0),
-                            'cost': result.cost or trade_request.get('amount', 0) * (result.price or trade_request.get('price', 0)),
-                            'fee': result.fee or 0,
-                            'status': 'executed',
-                            'order_id': result.order_id or '',
-                            'signal_source': trade_request.get('signal_source', ''),
-                            'signal_confidence': trade_request.get('confidence', 0),
-                            'notes': f"交易执行成功 - {result.message or ''}"
+                            "symbol": trade_request.get("symbol", ""),
+                            "side": trade_request.get("side", ""),
+                            "price": result.price or trade_request.get("price", 0),
+                            "amount": trade_request.get("amount", 0),
+                            "cost": result.cost
+                            or trade_request.get("amount", 0)
+                            * (result.price or trade_request.get("price", 0)),
+                            "fee": result.fee or 0,
+                            "status": "executed",
+                            "order_id": result.order_id or "",
+                            "signal_source": trade_request.get("signal_source", ""),
+                            "signal_confidence": trade_request.get("confidence", 0),
+                            "notes": f"交易执行成功 - {result.message or ''}",
                         }
                         await self.data_manager.save_trade(trade_data)
                     except Exception as e:
@@ -491,12 +666,11 @@ class TradingEngine(BaseComponent):
 
         except Exception as e:
             logger.error(f"执行交易失败: {e}")
-            return TradeResult(
-                success=False,
-                error_message=str(e)
-            )
+            return TradeResult(success=False, error_message=str(e))
 
-    async def get_position(self, symbol: str = "BTC/USDT:USDT") -> Optional[PositionInfo]:
+    async def get_position(
+        self, symbol: str = "BTC/USDT:USDT"
+    ) -> Optional[PositionInfo]:
         """获取仓位信息"""
         return await self.position_manager.get_position(symbol)
 
@@ -504,23 +678,22 @@ class TradingEngine(BaseComponent):
         """获取账户余额"""
         return await self.exchange_client.fetch_balance()
 
-    async def close_position(self, symbol: str, amount: Optional[float] = None) -> TradeResult:
+    async def close_position(
+        self, symbol: str, amount: Optional[float] = None
+    ) -> TradeResult:
         """平仓"""
         position = await self.get_position(symbol)
         if not position:
-            return TradeResult(
-                success=False,
-                error_message="没有找到仓位"
-            )
+            return TradeResult(success=False, error_message="没有找到仓位")
 
         close_amount = amount or position.amount
 
         trade_request = {
-            'symbol': symbol,
-            'side': 'sell' if position.side == 'long' else 'buy',
-            'amount': close_amount,
-            'type': 'market',
-            'reason': 'manual_close'
+            "symbol": symbol,
+            "side": "sell" if position.side == "long" else "buy",
+            "amount": close_amount,
+            "type": "market",
+            "reason": "manual_close",
         }
 
         return await self.execute_trade(trade_request)
@@ -528,13 +701,18 @@ class TradingEngine(BaseComponent):
     def get_status(self) -> Dict[str, Any]:
         """获取引擎状态"""
         base_status = super().get_status()
-        base_status.update({
-            'is_trading_active': self.is_trading_active,
-            'daily_trade_count': self.daily_trade_count,
-            'last_trade_time': self.last_trade_time.isoformat() if self.last_trade_time else None,
-            'engine_stats': self.engine_stats
-        })
+        base_status.update(
+            {
+                "is_trading_active": self.is_trading_active,
+                "daily_trade_count": self.daily_trade_count,
+                "last_trade_time": self.last_trade_time.isoformat()
+                if self.last_trade_time
+                else None,
+                "engine_stats": self.engine_stats,
+            }
+        )
         return base_status
+
 
 # 全局交易引擎实例
 def create_trading_engine() -> TradingEngine:
@@ -550,7 +728,7 @@ def create_trading_engine() -> TradingEngine:
         test_mode=config_manager.trading.test_mode,
         max_daily_trades=config_manager.system.max_history_length,
         enable_auto_close=True,
-        trading_hours_only=False
+        trading_hours_only=False,
     )
 
     return TradingEngine(engine_config)
