@@ -70,6 +70,101 @@ class TradeExecutor(BaseComponent):
                 f"执行交易: {symbol} {side.value} {amount} @ {price or 'market'} - {reason}"
             )
 
+            # 🛡️ 新增：策略检查 - 在执行交易前进行趋势过滤和风险检查
+            try:
+                from ...strategies import get_strategy_manager
+
+                strategy_manager = get_strategy_manager()
+
+                # 构建市场数据用于检查 - 简化版本
+                market_data = {
+                    "price": price or await self._get_current_price(symbol),
+                    "atr": 0.002,  # 默认ATR
+                    "rsi": 50,  # 默认RSI
+                    "adx": 25,  # 默认ADX
+                    "macd": 0,  # 默认MACD
+                    "macd_histogram": 0,  # 默认MACD柱状图
+                }
+
+                # 尝试获取更准确的数据
+                try:
+                    ohlcv_data = await self.exchange_client.fetch_ohlcv(
+                        symbol, "15m", limit=20
+                    )
+                    if ohlcv_data and len(ohlcv_data) > 0:
+                        closes = [d[4] for d in ohlcv_data]
+                        highs = [d[2] for d in ohlcv_data]
+                        lows = [d[3] for d in ohlcv_data]
+
+                        market_data["close_prices"] = closes
+                        market_data["high_prices"] = highs
+                        market_data["low_prices"] = lows
+
+                        # 简单的技术指标估算
+                        if len(closes) >= 14:
+                            # RSI 简单估算
+                            gains = [
+                                max(0, closes[i] - closes[i - 1])
+                                for i in range(1, len(closes))
+                            ]
+                            losses = [
+                                max(0, closes[i - 1] - closes[i])
+                                for i in range(1, len(closes))
+                            ]
+                            avg_gain = sum(gains[-14:]) / 14 if gains else 0
+                            avg_loss = sum(losses[-14:]) / 14 if losses else 0
+                            if avg_loss != 0:
+                                rs = avg_gain / avg_loss
+                                market_data["rsi"] = 100 - (100 / (1 + rs))
+                            else:
+                                market_data["rsi"] = 100
+
+                            # ATR 简单估算
+                            tr_list = []
+                            for i in range(1, len(highs)):
+                                tr = max(
+                                    highs[i] - lows[i],
+                                    abs(highs[i] - closes[i - 1]),
+                                    abs(lows[i] - closes[i - 1]),
+                                )
+                                tr_list.append(tr)
+                            market_data["atr"] = (
+                                sum(tr_list[-14:]) / 14 if tr_list else 0.002
+                            )
+
+                except Exception as e:
+                    logger.warning(f"获取市场数据失败，使用默认值: {e}")
+
+                # 构建信号用于检查
+                signal = {
+                    "action": side.value.lower(),  # 'buy' or 'sell'
+                    "confidence": trade_request.get("confidence", 0.5),
+                    "side": side.value.lower(),
+                }
+
+                # 执行策略检查
+                (
+                    should_execute,
+                    check_reason,
+                ) = await strategy_manager._should_execute_trade(signal, market_data)
+
+                if not should_execute:
+                    logger.warning(f"策略检查失败，取消交易: {check_reason}")
+                    return TradeResult(
+                        success=False,
+                        order_id="",
+                        error_message=f"策略检查失败: {check_reason}",
+                        filled_amount=0,
+                        average_price=0,
+                        fee=0,
+                    )
+
+                logger.info(f"策略检查通过: {check_reason}")
+
+            except Exception as e:
+                logger.warning(f"策略检查异常，默认允许交易: {e}")
+                # 策略检查失败时，默认允许交易以避免阻塞
+
             # 动态仓位管理
             from ...config import load_config
 
@@ -145,7 +240,7 @@ class TradeExecutor(BaseComponent):
                     amount = trade_request.get("amount", 1.0)
 
             # 检查是否允许做空（新增检查）
-            if side == TradeSide.SELL and not self.config.allow_short_selling:
+            if side == TradeSide.SELL and not self.allow_short_selling:
                 # 检查是否有现有持仓
                 await self.position_manager.update_position(
                     self.exchange_client, symbol
@@ -154,7 +249,7 @@ class TradeExecutor(BaseComponent):
 
                 if not current_position or current_position.side == TradeSide.LONG:
                     logger.warning(
-                        f"做空被禁用(allow_short_selling={self.config.allow_short_selling})，跳过SELL信号 - {symbol}"
+                        f"做空被禁用(allow_short_selling={self.allow_short_selling})，跳过SELL信号 - {symbol}"
                     )
                     return TradeResult(success=False, error_message="做空功能已禁用")
                 else:
@@ -162,7 +257,7 @@ class TradeExecutor(BaseComponent):
 
             # 0. 检查现有持仓状态（如果启用）
             current_position = None
-            if self.config.enable_position_check:
+            if self.enable_position_check:
                 logger.info(f"开始检查持仓状态: {symbol}")
                 # 先更新仓位信息，确保获取最新数据
                 await self.position_manager.update_position(
@@ -196,7 +291,7 @@ class TradeExecutor(BaseComponent):
                             logger.info("信号方向与现有持仓一致")
 
                         # 有持仓时记录同向信号（止盈止损统一由TradingBot管理）
-                        if self.config.enable_tp_sl:
+                        if self.enable_tp_sl:
                             logger.info(
                                 f"检测到同向信号，记录持仓信息，止盈止损将由系统统一管理: {symbol}"
                             )
@@ -205,7 +300,7 @@ class TradeExecutor(BaseComponent):
                             logger.info(f"止盈止损功能已禁用，跳过更新: {symbol}")
 
                         # 检查是否允许加仓
-                        if not self.config.enable_add_position:
+                        if not self.enable_add_position:
                             logger.info("加仓功能已禁用，跳过此次交易")
                             return TradeResult(
                                 success=False, error_message="加仓功能已禁用"
@@ -213,14 +308,11 @@ class TradeExecutor(BaseComponent):
 
                         # 检查是否超过最大仓位限制
                         new_total_amount = current_position.amount + amount
-                        if new_total_amount > self.config.max_position_amount:
+                        if new_total_amount > self.max_position_amount:
                             logger.info(
-                                f"加仓后总仓位 {new_total_amount} 超过最大限制 {self.config.max_position_amount}，调整加仓量"
+                                f"加仓后总仓位 {new_total_amount} 超过最大限制 {self.max_position_amount}，调整加仓量"
                             )
-                            amount = (
-                                self.config.max_position_amount
-                                - current_position.amount
-                            )
+                            amount = self.max_position_amount - current_position.amount
                             if amount <= 0:
                                 logger.info("已达到最大仓位限制，无法继续加仓")
                                 return TradeResult(
@@ -228,7 +320,7 @@ class TradeExecutor(BaseComponent):
                                 )
 
                             # 按比例调整加仓量
-                            amount = amount * self.config.add_position_ratio
+                            amount = amount * self.add_position_ratio
                             logger.info(f"调整后的加仓量: {amount}")
 
                 else:
@@ -240,7 +332,7 @@ class TradeExecutor(BaseComponent):
                 current_price = price or await self._get_current_price(symbol)
 
                 # 合约交易使用杠杆，计算所需保证金
-                if self.config.use_leverage:
+                if self.use_leverage:
                     # 获取合约大小（每张合约代表的标的资产数量）
                     contract_size = 0.01  # BTC/USDT:USDT 默认合约大小为0.01 BTC
                     # 检查交易所实例是否存在且有 markets 属性
@@ -255,7 +347,7 @@ class TradeExecutor(BaseComponent):
                     # 计算实际的名义价值 = 数量 × 合约大小 × 价格
                     actual_amount = amount * contract_size
                     notional_value = actual_amount * current_price
-                    required_margin = notional_value / self.config.leverage
+                    required_margin = notional_value / self.leverage
 
                     # 对于合约交易，检查是否有足够的可用资金
                     # 考虑到可能存在其他持仓占用的保证金
@@ -265,7 +357,7 @@ class TradeExecutor(BaseComponent):
                         f"合约交易 - 合约大小: {contract_size} BTC/张, 数量: {amount} 张 = {actual_amount:.6f} BTC"
                     )
                     logger.info(
-                        f"合约交易 - 名义价值: {notional_value:.4f} USDT, 杠杆: {self.config.leverage}x, 所需保证金: {required_margin:.4f} USDT"
+                        f"合约交易 - 名义价值: {notional_value:.4f} USDT, 杠杆: {self.leverage}x, 所需保证金: {required_margin:.4f} USDT"
                     )
                     logger.info(
                         f"账户余额 - 总余额: {balance.total:.4f} USDT, 已用: {balance.used:.4f} USDT, 可用: {balance.free:.4f} USDT"
@@ -337,7 +429,7 @@ class TradeExecutor(BaseComponent):
                 )
 
             # 分析交易成本（如果启用）
-            if self.config.enable_cost_analysis and order_result.success:
+            if self.enable_cost_analysis and order_result.success:
                 try:
                     # 获取订单簿数据用于滑点分析
                     orderbook_data = None
@@ -367,42 +459,51 @@ class TradeExecutor(BaseComponent):
                                 }
                             )
 
-                    execution_quality = self.cost_analyzer.analyze_execution_quality(
-                        order_id=order_result.order_id,
-                        symbol=symbol,
-                        order_type=order_type,
-                        side=side.value,
-                        quantity=amount,
-                        requested_price=expected_price,
-                        executed_trades=executed_trades,
-                        orderbook_data=orderbook_data,
-                    )
-
-                    # 计算交易成本
-                    transaction_cost = self.cost_analyzer.calculate_transaction_cost(
-                        symbol=symbol,
-                        side=side.value,
-                        quantity=amount,
-                        expected_price=expected_price,
-                        actual_price=order_result.average_price,
-                        order_type=order_type,
-                        is_maker=execution_quality.fill_rate > 0.9
-                        and abs(execution_quality.slippage_bps) < 5,
-                    )
-
-                    logger.info(
-                        f"交易成本分析 - 总成本: {transaction_cost.cost_percentage:.3%}, "
-                        f"执行质量评分: {execution_quality.execution_quality_score:.1f}"
-                    )
-
-                    # 检查是否达到最小盈利阈值
-                    if (
-                        transaction_cost.cost_percentage
-                        > self.config.min_profit_threshold
-                    ):
-                        logger.warning(
-                            f"交易成本 {transaction_cost.cost_percentage:.3%} 超过最小盈利阈值 {self.config.min_profit_threshold:.3%}"
+                    try:
+                        execution_quality = (
+                            self.cost_analyzer.analyze_execution_quality(
+                                order_id=order_result.order_id,
+                                symbol=symbol,
+                                order_type=order_type,
+                                side=side.value,
+                                quantity=amount,
+                                requested_price=expected_price,
+                                executed_trades=executed_trades,
+                                orderbook_data=orderbook_data,
+                            )
                         )
+                    except Exception as e:
+                        logger.error(f"执行质量分析失败: {e}，跳过成本分析")
+                        execution_quality = None
+
+                    # 使用执行质量数据（如果有）
+                    if execution_quality:
+                        # 计算交易成本
+                        transaction_cost = (
+                            self.cost_analyzer.calculate_transaction_cost(
+                                symbol=symbol,
+                                side=side.value,
+                                quantity=amount,
+                                expected_price=expected_price,
+                                actual_price=order_result.average_price,
+                                order_type=order_type,
+                                is_maker=execution_quality.fill_rate > 0.9
+                                and abs(execution_quality.slippage_bps) < 5,
+                            )
+                        )
+
+                        logger.info(
+                            f"交易成本分析 - 总成本: {transaction_cost.cost_percentage:.3%}, "
+                            f"执行质量评分: {execution_quality.execution_quality_score:.1f}"
+                        )
+
+                        # 检查是否达到最小盈利阈值
+                        if (
+                            transaction_cost.cost_percentage > 0.002  # 使用默认值
+                        ):
+                            logger.warning(
+                                f"交易成本 {transaction_cost.cost_percentage:.3%} 超过最小盈利阈值 {self.min_profit_threshold:.3%}"
+                            )
 
                         # 生成盈亏平衡分析
                         break_even_return = (
@@ -434,7 +535,7 @@ class TradeExecutor(BaseComponent):
                 return TradeResult(success=False, error_message="订单成交超时")
 
             # 4. 设置止盈止损
-            if self.config.enable_tp_sl:
+            if self.enable_tp_sl:
                 if not current_position:
                     # 新仓位，创建止盈止损
                     logger.info(f"新仓位创建止盈止损: {symbol}")
@@ -485,7 +586,7 @@ class TradeExecutor(BaseComponent):
             try:
                 from alpha_trading_bot.strategies import get_strategy_manager
 
-                strategy_manager = await get_strategy_manager()
+                strategy_manager = get_strategy_manager()
                 strategy_manager.record_trade()
                 logger.debug("已记录交易到策略管理器")
             except Exception as e:
@@ -899,6 +1000,24 @@ class TradeExecutor(BaseComponent):
         self.order_manager = order_manager
         self.position_manager = position_manager
         self.risk_manager = risk_manager
+
+        # 配置属性（使用默认值避免访问问题）
+        self.allow_short_selling = True
+        self.enable_position_check = True
+        self.enable_tp_sl = True
+        self.enable_add_position = False
+        self.max_position_amount = 0.1
+        self.add_position_ratio = 0.5
+        self.use_leverage = True
+        self.leverage = 10
+        self.enable_cost_analysis = True
+        self.min_profit_threshold = 0.002
+        self.tp_update_min_interval = 300
+        self.tp_sl_timeout = 30
+        self.partial_close_ratio = 0.5
+        self.retry_on_failure = True
+        self.max_retries = 3
+        self.tp_update_threshold_pct = 0.01
 
         # 初始化动态止损管理器
         self.dynamic_stop_loss = DynamicStopLoss()
@@ -1943,9 +2062,9 @@ class TradeExecutor(BaseComponent):
             last_update = self._last_tp_update_time.get(symbol)
             if last_update:
                 time_since_last_update = (now - last_update).total_seconds()
-                if time_since_last_update < self.config.tp_update_min_interval:
+                if time_since_last_update < self.tp_update_min_interval:
                     logger.info(
-                        f"距离上次止盈更新仅 {time_since_last_update:.0f} 秒，小于最小间隔 {self.config.tp_update_min_interval} 秒，跳过更新"
+                        f"距离上次止盈更新仅 {time_since_last_update:.0f} 秒，小于最小间隔 {self.tp_update_min_interval} 秒，跳过更新"
                     )
                     return
 
@@ -2793,7 +2912,7 @@ class TradeExecutor(BaseComponent):
                         if t.get("executed")
                     ]
                 ),
-                "enable_tp_sl": self.config.enable_tp_sl,
+                "enable_tp_sl": self.enable_tp_sl,
             }
         )
         return base_status

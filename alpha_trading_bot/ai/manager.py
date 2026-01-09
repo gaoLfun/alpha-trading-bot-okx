@@ -371,6 +371,28 @@ class AIManager(BaseComponent):
                         f"🚨 检测到强势上涨趋势({trend_strength})，将严格过滤卖出信号"
                     )
 
+            # 🛡️ 优化：统一获取自学习优化参数，避免重复
+            adaptive_params = None
+            if (
+                hasattr(self, "self_learning_optimizer")
+                and self.self_learning_optimizer
+            ):
+                try:
+                    # 在AI Manager层面统一获取优化参数
+                    adaptive_params = (
+                        await self.self_learning_optimizer.get_adaptive_parameters(
+                            market_data
+                        )
+                    )
+                    logger.debug("统一获取自学习优化参数成功")
+                except Exception as e:
+                    logger.warning(f"获取自学习优化参数失败: {e}")
+
+            # 将优化参数添加到市场数据中，供所有AI提供商使用
+            if adaptive_params:
+                market_data = dict(market_data)  # 创建副本避免修改原始数据
+                market_data["adaptive_params"] = adaptive_params
+
             # 并行获取所有提供商的信号
             tasks = []
             for provider in self.providers:
@@ -761,8 +783,8 @@ class AIManager(BaseComponent):
         current_hour = datetime.now().hour
 
         # 获取趋势信息用于缓存键
-        trend_direction = market_data.get('trend_direction', 'neutral')
-        trend_strength = market_data.get('trend_strength', 'normal')
+        trend_direction = market_data.get("trend_direction", "neutral")
+        trend_strength = market_data.get("trend_strength", "normal")
 
         # 生成缓存键 - 添加趋势信息确保一致性
         cache_key = f"ai_signal_v2_{price_bucket}_{volume_bucket}_{current_hour}_{trend_direction}_{trend_strength}"
@@ -916,16 +938,24 @@ class AIManager(BaseComponent):
             trend_direction = market_data.get("trend_direction", "neutral")
             trend_strength = market_data.get("trend_strength", "normal")
 
-            if composite_position < 35 and not (trend_direction == "down" and trend_strength in ["strong", "extreme"]):
+            if composite_position < 35 and not (
+                trend_direction == "down" and trend_strength in ["strong", "extreme"]
+            ):
                 # 只在非强势下跌趋势中应用低价格策略
                 low_price_strategy = LowPriceStrategy()
                 enhanced_signal = low_price_strategy.enhance_signal_for_low_price(
                     signal, market_data
                 )
                 signal = enhanced_signal
-            elif composite_position < 35 and trend_direction == "down" and trend_strength in ["strong", "extreme"]:
+            elif (
+                composite_position < 35
+                and trend_direction == "down"
+                and trend_strength in ["strong", "extreme"]
+            ):
                 # 强势下跌趋势中，即使价格位置低也降低信号强度
-                logger.warning(f"🚨 强势下跌趋势中，低价格位置信号被抑制 (位置: {composite_position:.1f}%)")
+                logger.warning(
+                    f"🚨 强势下跌趋势中，低价格位置信号被抑制 (位置: {composite_position:.1f}%)"
+                )
                 signal["confidence"] = signal.get("confidence", 0.5) * 0.7  # 降低30%
 
             # 创建缩放器
@@ -936,11 +966,9 @@ class AIManager(BaseComponent):
             trend_direction = market_data.get("trend_direction", "neutral")
 
             # 将字符串趋势强度转换为数值进行评估
-            trend_strength_numeric = {
-                "normal": 0.3,
-                "strong": 0.6,
-                "extreme": 0.9
-            }.get(trend_strength, 0.3)
+            trend_strength_numeric = {"normal": 0.3, "strong": 0.6, "extreme": 0.9}.get(
+                trend_strength, 0.3
+            )
 
             # 添加强势下跌趋势强制过滤 - 关键修复
             if trend_strength_numeric < -0.3 and trend_direction == "down":
@@ -985,7 +1013,9 @@ class AIManager(BaseComponent):
                 )
 
             # 获取详细分析（传入趋势强度）
-            analysis = scaler.get_detailed_analysis(composite_position, trend_strength_numeric)
+            analysis = scaler.get_detailed_analysis(
+                composite_position, trend_strength_numeric
+            )
 
             # 如果突破，更新分析中的级别
             if breakout_config["is_breakout"]:
@@ -1006,11 +1036,9 @@ class AIManager(BaseComponent):
             technical_data = market_data.get("technical_data", {})
 
             # 将字符串趋势强度转换为数值
-            trend_strength_numeric = {
-                "normal": 0.3,
-                "strong": 0.6,
-                "extreme": 0.9
-            }.get(trend_strength, 0.3)
+            trend_strength_numeric = {"normal": 0.3, "strong": 0.6, "extreme": 0.9}.get(
+                trend_strength, 0.3
+            )
 
             # 多重趋势确认
             trend_confirmed = True
@@ -1117,9 +1145,10 @@ class AIManager(BaseComponent):
             try:
                 composite_position = float(composite_position)
             except (ValueError, TypeError):
-                logger.warning(f"_apply_price_position_scaling最终composite_position类型检查失败，使用默认值50.0")
+                logger.warning(
+                    f"_apply_price_position_scaling最终composite_position类型检查失败，使用默认值50.0"
+                )
                 composite_position = 50.0
-
 
             # 如果是高风险位置，添加额外警告
             if composite_position > 80:
@@ -1372,7 +1401,9 @@ async def cleanup_ai_manager() -> None:
             try:
                 composite_position = float(composite_position)
             except (ValueError, TypeError):
-                logger.warning(f"_apply_price_position_scaling最终composite_position类型检查失败，使用默认值50.0")
+                logger.warning(
+                    f"_apply_price_position_scaling最终composite_position类型检查失败，使用默认值50.0"
+                )
                 composite_position = 50.0
 
             # 如果是高风险位置，添加额外警告

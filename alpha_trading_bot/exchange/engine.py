@@ -83,6 +83,11 @@ class TradingEngine(BaseComponent):
             executor_config,
         )
 
+        # 初始化市场数据缓存
+        self._market_data_cache = {}
+        self._cache_timestamps = {}
+        self._cache_duration = 300  # 5分钟缓存
+
         # 状态管理
         self.is_trading_active = False
         self.daily_trade_count = 0
@@ -149,8 +154,22 @@ class TradingEngine(BaseComponent):
         await self.trade_executor.cleanup()
 
     async def get_market_data(self, symbol: str = "BTC/USDT:USDT") -> Dict[str, Any]:
-        """获取市场数据"""
+        """获取市场数据 - 带缓存优化"""
         try:
+            import time
+
+            cache_key = f"market_data_{symbol}"
+            current_time = time.time()
+
+            # 检查缓存是否有效（5分钟内）
+            if (
+                cache_key in self._market_data_cache
+                and cache_key in self._cache_timestamps
+                and current_time - self._cache_timestamps[cache_key]
+                < self._cache_duration
+            ):
+                logger.debug(f"使用缓存的市场数据: {symbol}")
+                return self._market_data_cache[cache_key]
             # 测试模式下使用模拟数据
             if self.config.test_mode:
                 import random
@@ -279,6 +298,11 @@ class TradingEngine(BaseComponent):
                         await self.data_manager.save_market_data(market_snapshot)
                     except Exception as e:
                         logger.warning(f"保存市场数据失败: {e}")
+
+                    # 缓存市场数据
+                    self._market_data_cache[cache_key] = market_data
+                    self._cache_timestamps[cache_key] = current_time
+                    logger.debug(f"缓存市场数据: {symbol}")
 
                 return market_data
 
