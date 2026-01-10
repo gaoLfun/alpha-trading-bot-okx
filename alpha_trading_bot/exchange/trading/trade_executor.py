@@ -70,6 +70,55 @@ class TradeExecutor(BaseComponent):
                 f"执行交易: {symbol} {side.value} {amount} @ {price or 'market'} - {reason}"
             )
 
+            # 🆕 集成交易成本优化器 - 选择最优执行策略
+            try:
+                from .transaction_cost_optimizer import TransactionCostOptimizer
+
+                if not hasattr(self, "_cost_optimizer"):
+                    self._cost_optimizer = TransactionCostOptimizer()
+
+                # 获取当前市场数据用于成本优化
+                current_price = price or await self._get_current_price(symbol)
+
+                # 构建市场数据
+                market_data = {
+                    "price": current_price,
+                    "spread": 0.001,  # 默认价差
+                    "volume_24h": getattr(self.exchange_client, "_last_ticker", {}).get(
+                        "volume", 1000000
+                    ),
+                    "volatility": 0.02,  # 默认波动率
+                    "atr": 250,  # 默认ATR
+                }
+
+                # 获取账户信息
+                account_info = {
+                    "exchange": "okx",
+                    "tier": "regular",  # 可以从配置中获取
+                }
+
+                # 优化订单执行
+                optimized_order = await self._cost_optimizer.optimize_order_execution(
+                    symbol, side.value.lower(), amount, market_data, account_info
+                )
+
+                # 使用优化后的订单参数
+                order_type = optimized_order.order_type.value
+                price = optimized_order.price
+                estimated_cost = optimized_order.estimated_cost
+
+                logger.info(
+                    f"💰 成本优化结果: {order_type} 执行, "
+                    f"预估总成本: ${estimated_cost.total_cost:.2f} "
+                    f"(手续费: ${estimated_cost.commission:.2f}, "
+                    f"滑点: ${estimated_cost.slippage:.2f})"
+                )
+
+            except ImportError as e:
+                logger.warning(f"交易成本优化器未找到，使用默认执行: {e}")
+            except Exception as e:
+                logger.error(f"成本优化异常，使用默认执行: {e}")
+
             # 🛡️ 新增：策略检查 - 在执行交易前进行趋势过滤和风险检查
             try:
                 from ...strategies import get_strategy_manager

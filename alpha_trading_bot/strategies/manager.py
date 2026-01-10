@@ -625,6 +625,16 @@ class StrategyManager(BaseComponent):
         if self.enable_adaptive_strategy:
             self.adaptive_strategy.enable_adaptation(True)
 
+        # 🆕 初始化波动率适配器
+        try:
+            from ..market.market_volatility_adapter import MarketVolatilityAdapter
+
+            self.volatility_adapter = MarketVolatilityAdapter()
+            logger.info("波动率适配器已初始化")
+        except ImportError as e:
+            logger.warning(f"波动率适配器未找到，跳过初始化: {e}")
+            self.volatility_adapter = None
+
     async def update_strategy_performance(self, trade_result: Dict[str, Any]):
         """更新策略绩效数据"""
         try:
@@ -721,6 +731,44 @@ class StrategyManager(BaseComponent):
         """生成交易信号"""
         try:
             signals = []
+
+            # 🆕 集成波动率适配器 - 分析市场波动率并调整策略参数
+            current_volatility_metrics = None
+            adaptive_strategy_params = None
+
+            try:
+                if self.volatility_adapter:
+                    # 获取历史价格数据用于波动率计算
+                    historical_prices = market_data.get("close_prices", [])
+                    if not historical_prices:
+                        # 如果没有历史价格，尝试从其他地方获取
+                        historical_prices = [market_data.get("price", 50000)] * 20
+
+                    # 分析波动率
+                    current_volatility_metrics = (
+                        self.volatility_adapter.analyze_volatility(
+                            market_data, historical_prices
+                        )
+                    )
+
+                    # 获取自适应策略参数
+                    adaptive_strategy_params = (
+                        self.volatility_adapter.get_adaptive_strategy(
+                            current_volatility_metrics
+                        )
+                    )
+
+                    logger.info(
+                        f"🌊 波动率分析完成: {current_volatility_metrics.regime.value} "
+                        f"(ATR: {current_volatility_metrics.atr_percentage:.2%})"
+                    )
+                    logger.info(
+                        f"🎛️ 自适应参数: 信号阈值={adaptive_strategy_params.signal_threshold:.2f}, "
+                        f"冷却={adaptive_strategy_params.cooling_minutes}分钟"
+                    )
+
+            except Exception as e:
+                logger.warning(f"波动率适配器异常，使用默认参数: {e}")
 
             # 根据市场条件动态调整参数
             self._adjust_parameters_based_on_market(market_data)

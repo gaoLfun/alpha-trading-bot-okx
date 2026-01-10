@@ -574,6 +574,118 @@ class TradingBot(BaseComponent):
         # 记录AI信号详情
         self._log_ai_signals(ai_signals, providers, config_providers)
 
+        # 🆕 集成智能信号过滤器 - 过滤和优化信号质量
+        try:
+            from ..strategies.intelligent_signal_filter import IntelligentSignalFilter
+
+            if not hasattr(self, "_signal_filter"):
+                self._signal_filter = IntelligentSignalFilter()
+
+            # 为每个AI信号创建完整的信号对象用于过滤
+            filtered_signals = []
+            for ai_signal in ai_signals:
+                signal = {
+                    "signal": ai_signal.get("signal", ai_signal.get("type", "HOLD")),
+                    "type": ai_signal.get("signal", ai_signal.get("type", "HOLD")),
+                    "confidence": ai_signal.get("confidence", 0.5),
+                    "sources": [ai_signal],  # AI信号作为单一来源
+                    "timestamp": datetime.now(),
+                }
+
+                # 应用信号过滤
+                filter_result = self._signal_filter.analyze_signal_quality(
+                    signal, market_data
+                )
+
+                if filter_result.passed:
+                    # 添加过滤结果信息
+                    signal.update(
+                        {
+                            "filter_score": filter_result.score,
+                            "filter_confidence": filter_result.confidence_level,
+                            "filter_reasons": filter_result.reasons,
+                        }
+                    )
+                    filtered_signals.append(signal)
+                    self.enhanced_logger.logger.info(
+                        f"✅ 信号通过过滤: {signal['signal']} (评分: {filter_result.score:.1f})"
+                    )
+                else:
+                    rejection_reasons = [
+                        r for r in filter_result.reasons if "❌" in r or "⚠️" in r
+                    ]
+                    reason_text = (
+                        rejection_reasons[0] if rejection_reasons else "未通过质量过滤"
+                    )
+                    self.enhanced_logger.logger.info(
+                        f"❌ 信号被过滤: {signal['signal']} - {reason_text}"
+                    )
+
+            ai_signals = filtered_signals
+
+        except ImportError as e:
+            self.enhanced_logger.logger.warning(
+                f"智能信号过滤器未找到，使用原信号: {e}"
+            )
+        except Exception as e:
+            self.enhanced_logger.logger.error(f"信号过滤异常，使用原信号: {e}")
+
+        # 🆕 集成动态冷却管理器 - 检查交易频率限制
+        try:
+            from ..trading.dynamic_trade_cooling import DynamicTradeCoolingManager
+
+            if not hasattr(self, "_cooling_manager"):
+                self._cooling_manager = DynamicTradeCoolingManager()
+
+            # 检查是否有买入信号
+            buy_signals = [
+                s for s in ai_signals if s.get("signal", "").upper() in ["BUY", "LONG"]
+            ]
+            sell_signals = [
+                s
+                for s in ai_signals
+                if s.get("signal", "").upper() in ["SELL", "SHORT"]
+            ]
+
+            # 检查买入冷却
+            if buy_signals:
+                can_buy, buy_reason, buy_cooldown = self._cooling_manager.can_trade(
+                    "buy", market_data
+                )
+                if not can_buy:
+                    self.enhanced_logger.logger.warning(
+                        f"🚫 买入信号被冷却管理器阻止: {buy_reason} (冷却: {buy_cooldown}秒)"
+                    )
+                    # 移除所有买入信号
+                    ai_signals = [
+                        s
+                        for s in ai_signals
+                        if s.get("signal", "").upper() not in ["BUY", "LONG"]
+                    ]
+
+            # 检查卖出冷却
+            if sell_signals:
+                can_sell, sell_reason, sell_cooldown = self._cooling_manager.can_trade(
+                    "sell", market_data
+                )
+                if not can_sell:
+                    self.enhanced_logger.logger.warning(
+                        f"🚫 卖出信号被冷却管理器阻止: {sell_reason} (冷却: {sell_cooldown}秒)"
+                    )
+                    # 移除所有卖出信号
+                    ai_signals = [
+                        s
+                        for s in ai_signals
+                        if s.get("signal", "").upper() not in ["SELL", "SHORT"]
+                    ]
+
+        except ImportError as e:
+            self.enhanced_logger.logger.warning(
+                f"动态冷却管理器未找到，跳过冷却检查: {e}"
+            )
+        except Exception as e:
+            self.enhanced_logger.logger.error(f"冷却管理器异常，跳过冷却检查: {e}")
+
         # 生成所有信号（包括策略信号）
         all_signals = await self.strategy_manager.generate_signals(
             market_data, ai_signals
@@ -1491,6 +1603,25 @@ class TradingBot(BaseComponent):
                 # 重置AI信号缓存标志，为下个周期做准备
                 self._ai_signals_cache_valid = False
                 self._cached_ai_signals = []
+
+                # 🆕 重置优化组件状态，为下个周期做准备
+                try:
+                    # 重置信号过滤器历史
+                    if hasattr(self, "_signal_filter") and self._signal_filter:
+                        self._signal_filter.reset_history()
+
+                    # 重置冷却管理器（新的一天重置）
+                    if hasattr(self, "_cooling_manager") and self._cooling_manager:
+                        # 检查是否是新的一天
+                        now = datetime.now()
+                        if now.hour == 0 and now.minute < 5:  # 凌晨0点附近
+                            self._cooling_manager.reset_for_new_day()
+                            self.enhanced_logger.logger.info(
+                                "冷却管理器已重置为新的一天"
+                            )
+
+                except Exception as e:
+                    self.enhanced_logger.logger.warning(f"优化组件重置异常: {e}")
         else:
             next_exec_time_str = "未知"
             wait_time = "未知"
