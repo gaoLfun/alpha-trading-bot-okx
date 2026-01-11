@@ -298,21 +298,21 @@ class TradingBot(BaseComponent):
                     self.config.cycle_interval
                 )  # 从配置读取周期（默认15分钟）
 
-                # 计算下一个周期的基础时间
+                # 计算下一个周期的基础时间（更可靠的方法）
+                # 计算当前时间距离下一个周期整点的秒数
                 current_minute = now.minute
-                next_minute = ((current_minute // cycle_minutes) + 1) * cycle_minutes
-                if next_minute >= 60:
-                    next_minute = next_minute % 60
-                    next_hour = now.hour + 1  # 小时增加1
-                    if next_hour >= 24:
-                        next_hour = next_hour % 24
-                else:
-                    next_hour = now.hour
+                current_second = now.second
+                cycle_seconds = cycle_minutes * 60
 
-                # 基础执行时间（周期整点）
-                base_execution_time = now.replace(
-                    hour=next_hour, minute=next_minute, second=0, microsecond=0
-                )
+                # 计算距离下一个周期整点的秒数
+                minutes_to_next_cycle = cycle_minutes - (current_minute % cycle_minutes)
+                if minutes_to_next_cycle == cycle_minutes:  # 恰好在整点
+                    minutes_to_next_cycle = cycle_minutes
+
+                seconds_to_next_cycle = minutes_to_next_cycle * 60 - current_second
+
+                # 基础执行时间 = 当前时间 + 距离下一个周期的秒数
+                base_execution_time = now + timedelta(seconds=seconds_to_next_cycle)
 
                 # 添加随机时间偏移（使用配置的偏移范围）
                 offset_range = self.config.random_offset_range  # 默认±180秒（±3分钟）
