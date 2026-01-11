@@ -1285,8 +1285,10 @@ class TradingBot(BaseComponent):
                     )
 
                     if (
-                        new_sl_price and abs(new_sl_price - current_sl_price) > 0.01
-                    ):  # 价格变化超过0.01才调整
+                        new_sl_price
+                        and new_sl_price > current_sl_price
+                        and abs(new_sl_price - current_sl_price) > 0.01
+                    ):  # 只在止损价格上升且变化超过0.01时调整
                         self.enhanced_logger.logger.info(
                             f"🔄 调整止损价格: ${current_sl_price:.2f} → ${new_sl_price:.2f}"
                         )
@@ -1382,23 +1384,19 @@ class TradingBot(BaseComponent):
         if side.lower() == "long":
             # 多头持仓
             if current_price > entry_price:
-                # 盈利状态：上调止损到0.2%利润保护
-                profit_protection = current_price * (1 - 0.002)  # 0.2%利润保护
-                return max(current_sl_price, profit_protection)  # 取更高的止损价
+                # 盈利状态：止损为当前价的99.8% (0.2%)
+                return current_price * 0.998
             else:
-                # 亏损状态：保持固定止损0.5%
-                fixed_stop_loss = entry_price * (1 - 0.005)  # 0.5%固定止损
-                return min(current_sl_price, fixed_stop_loss)  # 取更保守的止损价
+                # 亏损状态：止损为入仓价的99.5% (0.5%)
+                return entry_price * 0.995
         elif side.lower() == "short":
             # 空头持仓
             if current_price < entry_price:
-                # 盈利状态：下调止损到0.2%利润保护
-                profit_protection = current_price * (1 + 0.002)  # 0.2%利润保护
-                return min(current_sl_price, profit_protection)  # 取更低的止损价
+                # 盈利状态：止损为当前价的100.2% (0.2%)
+                return current_price * 1.002
             else:
-                # 亏损状态：保持固定止损0.5%
-                fixed_stop_loss = entry_price * (1 + 0.005)  # 0.5%固定止损
-                return max(current_sl_price, fixed_stop_loss)  # 取更保守的止损价
+                # 亏损状态：止损为入仓价的100.5% (0.5%)
+                return entry_price * 1.005
 
         return None
 
