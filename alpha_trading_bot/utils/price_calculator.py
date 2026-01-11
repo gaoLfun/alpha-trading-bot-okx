@@ -3,8 +3,9 @@
 集中管理所有价格相关的计算逻辑
 """
 
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass
+import math
 
 
 @dataclass
@@ -201,34 +202,3 @@ class PriceCalculator:
         atr_ratio = atr_value / price if price > 0 else 0
         # 将ATR比例转换为0-100的分数
         return min(atr_ratio * 10000, 100)  # 放大并限制在100以内
-
-    @staticmethod
-    def calculate_volatility_score(
-        price_history: List[float], window: int = 20
-    ) -> float:
-        """
-        统一的价格波动率评分计算
-        """
-        if len(price_history) < window:
-            return 0.0
-
-        # 计算价格变化率的标准差
-        changes = []
-        for i in range(1, min(window + 1, len(price_history))):
-            if price_history[i - 1] > 0:
-                change = (price_history[i] - price_history[i - 1]) / price_history[
-                    i - 1
-                ]
-                changes.append(change)
-
-        if not changes:
-            return 0.0
-
-        # 计算标准差
-        mean_change = sum(changes) / len(changes)
-        variance = sum((x - mean_change) ** 2 for x in changes) / len(changes)
-        std_dev = math.sqrt(variance)
-
-        # 标准化为0-100的分数
-        volatility_score = min(std_dev * 1000, 100)
-        return volatility_score

@@ -15,6 +15,24 @@ from .price_calculator import (
     PricePosition,
     StopLossCalculation,
 )
+from .profit_calculator import (
+    ProfitCalculator,
+    ProfitAnalysis,
+    TradeResult,
+    PositionSide,
+)
+from .config_accessor import (
+    ConfigAccessor,
+    config_accessor,
+)
+from .cache_strategy import (
+    CacheKeyGenerator,
+    CacheExpirationManager,
+    CacheStrategy,
+    cache_key_generator,
+    cache_expiration_manager,
+    cache_strategy,
+)
 from .technical_cache import (
     TechnicalIndicatorsCache,
     CachedTechnicalIndicators,
@@ -39,6 +57,21 @@ __all__ = [
     "PriceCalculator",
     "PricePosition",
     "StopLossCalculation",
+    # 利润计算器
+    "ProfitCalculator",
+    "ProfitAnalysis",
+    "TradeResult",
+    "PositionSide",
+    # 配置访问器
+    "ConfigAccessor",
+    "config_accessor",
+    # 缓存策略
+    "CacheKeyGenerator",
+    "CacheExpirationManager",
+    "CacheStrategy",
+    "cache_key_generator",
+    "cache_expiration_manager",
+    "cache_strategy",
     # 技术指标缓存
     "TechnicalIndicatorsCache",
     "CachedTechnicalIndicators",
