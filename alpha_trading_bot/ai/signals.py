@@ -145,55 +145,53 @@ class SignalGenerator(BaseComponent):
             # 简单的价格模式识别
             # 使用统一的价格位置计算器
             price_position_result = PriceCalculator.calculate_price_position(
-                current_price=price,
-                daily_high=high,
-                daily_low=low
+                current_price=price, daily_high=high, daily_low=low
             )
             price_position = price_position_result.daily_position / 100  # 转换为0-1范围
 
-                # 超买信号
-                if price_position > 0.85:
+            # 超买信号
+            if price_position > 0.85:
+                signals.append(
+                    {
+                        "type": "sell",
+                        "confidence": 0.6,
+                        "reason": "价格处于超买区域",
+                        "source": "pattern",
+                        "pattern": "overbought",
+                        "timestamp": datetime.now(),
+                        "priority": 2,
+                    }
+                )
+
+            # 超卖信号
+            elif price_position < 0.15:
+                signals.append(
+                    {
+                        "type": "buy",
+                        "confidence": 0.6,
+                        "reason": "价格处于超卖区域",
+                        "source": "pattern",
+                        "pattern": "oversold",
+                        "timestamp": datetime.now(),
+                        "priority": 2,
+                    }
+                )
+
+            # 成交量异常
+            if volume > 0:
+                avg_volume = self._get_average_volume()
+                if volume > avg_volume * 2:
                     signals.append(
                         {
-                            "type": "sell",
-                            "confidence": 0.6,
-                            "reason": "价格处于超买区域",
+                            "type": "hold",
+                            "confidence": 0.7,
+                            "reason": "成交量异常放大",
                             "source": "pattern",
-                            "pattern": "overbought",
+                            "pattern": "volume_spike",
                             "timestamp": datetime.now(),
-                            "priority": 2,
+                            "priority": 1,
                         }
                     )
-
-                # 超卖信号
-                elif price_position < 0.15:
-                    signals.append(
-                        {
-                            "type": "buy",
-                            "confidence": 0.6,
-                            "reason": "价格处于超卖区域",
-                            "source": "pattern",
-                            "pattern": "oversold",
-                            "timestamp": datetime.now(),
-                            "priority": 2,
-                        }
-                    )
-
-                # 成交量异常
-                if volume > 0:
-                    avg_volume = self._get_average_volume()
-                    if volume > avg_volume * 2:
-                        signals.append(
-                            {
-                                "type": "hold",
-                                "confidence": 0.7,
-                                "reason": "成交量异常放大",
-                                "source": "pattern",
-                                "pattern": "volume_spike",
-                                "timestamp": datetime.now(),
-                                "priority": 1,
-                            }
-                        )
 
             return signals
 
