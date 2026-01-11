@@ -233,10 +233,10 @@ class DynamicStopLoss:
         market_volatility: str,
     ) -> Dict[str, Any]:
         """计算追踪止损参数"""
-        # 盈利超过1%时启用追踪止损
+        # 盈利超过0.6%时启用追踪止损
         profit_pct = (current_price - entry_price) / entry_price
 
-        if profit_pct > 0.01:  # 盈利超过1%
+        if profit_pct > 0.006:  # 盈利超过0.6%
             # 根据波动率设置追踪距离
             if market_volatility == "low":
                 trailing_distance = 0.008  # 0.8%
