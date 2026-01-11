@@ -1240,9 +1240,12 @@ class TradeExecutor(BaseComponent):
                                 current_sl_price - new_stop_loss
                             ) / current_sl_price
 
-                        # 检查是否达到更新阈值（0.1%）
+                        # 检查是否达到更新阈值（0.1%）且只允许止损价格上升
                         min_update_threshold = 0.001
-                        if abs(price_change_pct) >= min_update_threshold:
+                        if (
+                            abs(price_change_pct) >= min_update_threshold
+                            and price_change_pct > 0  # 只允许止损价格上升
+                        ):
                             logger.info(
                                 f"止损价格变动 {price_change_pct * 100:.1f}%，达到更新阈值，更新止损订单"
                             )
