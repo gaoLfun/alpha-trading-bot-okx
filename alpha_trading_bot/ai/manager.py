@@ -437,26 +437,49 @@ class AIManager(BaseComponent):
                         )
 
                         if confidence >= dynamic_threshold:
-                            # 强化AI信号一致性检查 - 如果分析文本包含等待建议，降低置信度
+                            # 强化AI信号一致性检查 - 如果分析文本包含谨慎/等待建议，降低置信度
                             analysis_text = (
                                 signal.get("reason", "").lower()
                                 + signal.get("analysis_text", "").lower()
                             )
+                            # 保存原始原因用于日志输出
+                            original_reason = signal.get("reason", "")
+
+                            # 扩展关键词列表 - 基于日志分析
+                            cautious_keywords = [
+                                "建议等待",
+                                "继续观察",
+                                "等待更明确",
+                                "缺乏确认",
+                                "继续等待",
+                                "观察等待",
+                                "保守买入",
+                                "谨慎量能",
+                                "弱趋势",
+                                "不宜",
+                                "敏感区域",
+                                "避免买入",
+                                "等待回调",
+                                "等待突破",
+                                "等待确认",
+                                "风险显著",
+                                "不宜追高",
+                                "缺乏支撑",
+                                "缺乏动能",
+                                "缺乏确认",
+                                "缺乏突破",
+                            ]
+
                             if any(
                                 keyword in analysis_text
-                                for keyword in [
-                                    "建议等待",
-                                    "继续观察",
-                                    "等待更明确",
-                                    "缺乏确认",
-                                    "继续等待",
-                                    "观察等待",
-                                ]
+                                for keyword in cautious_keywords
                             ):
                                 signal["confidence"] *= 0.5
                                 if signal["confidence"] < 0.6:
                                     signal["signal"] = "HOLD"
-                                    signal["reason"] = "AI分析建议等待，信号降级为观望"
+                                    signal["reason"] = (
+                                        f"系统对信号一致性优化后：AI分析建议等待，信号降级为观望。原始信号：{original_reason}"
+                                    )
 
                             signal["provider"] = provider
                             results.append(signal)
