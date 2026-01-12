@@ -5,9 +5,11 @@
 
 import asyncio
 import logging
+import json
+import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from alpha_trading_bot.core.base import BaseComponent, BaseConfig
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ class PriceMonitorConfig(BaseConfig):
     enable_ai_check: bool = False  # 第一阶段不启用AI检查
     max_records_per_day: int = 1000  # 每天最多记录数
     enable_logging: bool = True
+    data_dir: str = "data/price_monitor"  # 数据存储目录
+    save_interval: int = 300  # 数据保存间隔（秒），5分钟保存一次
 
 
 class PriceMonitor(BaseComponent):
@@ -58,13 +62,22 @@ class PriceMonitor(BaseComponent):
         self.quick_signals: List[QuickSignalRecord] = []
         self.last_monitor_time: Optional[datetime] = None
         self.monitor_task: Optional[asyncio.Task] = None
+        self.save_task: Optional[asyncio.Task] = None
         self.is_monitoring = False
+        self.data_dir: str = getattr(self.config, "data_dir", "data/price_monitor")
+        self.last_save_time: Optional[datetime] = None
 
     async def initialize(self) -> bool:
         """初始化价格监控器"""
         try:
             logger.info("正在初始化价格监控器...")
             self._initialized = True
+
+            # 确保数据目录存在
+            os.makedirs(self.data_dir, exist_ok=True)
+
+            # 加载历史数据
+            await self._load_historical_data()
 
             # 初始化价格历史记录（用于计算变化）
             await self._initialize_price_history()
@@ -76,6 +89,7 @@ class PriceMonitor(BaseComponent):
             logger.info(
                 f"价格监控器初始化完成 - 监控周期: {monitor_cycle}秒, 阈值: {price_change_threshold:.2%}"
             )
+            logger.info(f"数据存储目录: {self.data_dir}")
             return True
 
         except Exception as e:
@@ -138,6 +152,14 @@ class PriceMonitor(BaseComponent):
         logger.info("启动价格监控...")
         self.is_monitoring = True
         self.monitor_task = asyncio.create_task(self._monitor_loop())
+
+        # 启动定期数据保存任务
+        save_interval = getattr(self.config, "save_interval", 300)
+        self.save_task = asyncio.create_task(self._auto_save_loop(save_interval))
+
+        # 启动定期数据保存任务
+        save_interval = getattr(self.config, "save_interval", 300)
+        self.save_task = asyncio.create_task(self._auto_save_loop(save_interval))
 
     async def stop_monitoring(self):
         """停止价格监控"""
@@ -366,6 +388,73 @@ class PriceMonitor(BaseComponent):
             "volume": None,
         }
 
+    async def _load_historical_data(self):
+        """加载历史数据"""
+        try:
+            # 加载价格变化事件
+            events_file = os.path.join(self.data_dir, "price_change_events.json")
+            if os.path.exists(events_file):
+                with open(events_file, "r", encoding="utf-8") as f:
+                    events_data = json.load(f)
+                    for event_data in events_data:
+                        event = PriceChangeEvent(**event_data)
+                        self.price_change_events.append(event)
+                logger.info(
+                    f"已加载 {len(self.price_change_events)} 个历史价格变化事件"
+                )
+
+            # 加载快速信号记录
+            signals_file = os.path.join(self.data_dir, "quick_signals.json")
+            if os.path.exists(signals_file):
+                with open(signals_file, "r", encoding="utf-8") as f:
+                    signals_data = json.load(f)
+                    for signal_data in signals_data:
+                        signal = QuickSignalRecord(**signal_data)
+                        self.quick_signals.append(signal)
+                logger.info(f"已加载 {len(self.quick_signals)} 个历史快速信号")
+
+        except Exception as e:
+            logger.warning(f"加载历史数据失败: {e}")
+
+    async def _save_data(self):
+        """保存数据到文件"""
+        try:
+            # 保存价格变化事件
+            events_file = os.path.join(self.data_dir, "price_change_events.json")
+            events_data = [
+                asdict(event) for event in self.price_change_events[-1000:]
+            ]  # 只保存最近1000个
+            with open(events_file, "w", encoding="utf-8") as f:
+                json.dump(events_data, f, ensure_ascii=False, indent=2, default=str)
+
+            # 保存快速信号记录
+            signals_file = os.path.join(self.data_dir, "quick_signals.json")
+            signals_data = [
+                asdict(signal) for signal in self.quick_signals[-500:]
+            ]  # 只保存最近500个
+            with open(signals_file, "w", encoding="utf-8") as f:
+                json.dump(signals_data, f, ensure_ascii=False, indent=2, default=str)
+
+            logger.debug(f"数据已保存到 {self.data_dir}")
+
+        except Exception as e:
+            logger.error(f"保存数据失败: {e}")
+
+    async def _auto_save_loop(self, interval: int):
+        """自动保存数据循环"""
+        while self.is_monitoring:
+            try:
+                await asyncio.sleep(interval)
+                if self.is_monitoring:  # 再次检查，确保仍在运行
+                    await self._save_data()
+                    self.last_save_time = datetime.now()
+            except asyncio.CancelledError:
+                logger.info("自动保存循环被取消")
+                break
+            except Exception as e:
+                logger.error(f"自动保存循环异常: {e}")
+                await asyncio.sleep(10)  # 出错后等待10秒再试
+
     async def _quick_ai_analysis(
         self, event: PriceChangeEvent, market_context: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
@@ -442,6 +531,14 @@ class PriceMonitor(BaseComponent):
     async def cleanup(self):
         """清理资源"""
         await self.stop_monitoring()
+
+        # 保存最终数据
+        try:
+            await self._save_data()
+            logger.info("最终数据已保存")
+        except Exception as e:
+            logger.error(f"保存最终数据失败: {e}")
+
         self.price_history.clear()
         self.price_change_events.clear()
         self.quick_signals.clear()
