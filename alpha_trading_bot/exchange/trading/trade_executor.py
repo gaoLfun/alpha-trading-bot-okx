@@ -72,7 +72,9 @@ class TradeExecutor(BaseComponent):
 
             # 🆕 集成交易成本优化器 - 选择最优执行策略
             try:
-                from .transaction_cost_optimizer import TransactionCostOptimizer
+                from ...trading.transaction_cost_optimizer import (
+                    TransactionCostOptimizer,
+                )
 
                 if not hasattr(self, "_cost_optimizer"):
                     self._cost_optimizer = TransactionCostOptimizer()
@@ -121,9 +123,9 @@ class TradeExecutor(BaseComponent):
 
             # 🛡️ 新增：策略检查 - 在执行交易前进行趋势过滤和风险检查
             try:
-                from ...strategies import get_strategy_manager
+                from ...strategies import create_strategy_manager
 
-                strategy_manager = get_strategy_manager()
+                strategy_manager = await create_strategy_manager()
 
                 # 构建市场数据用于检查 - 简化版本
                 market_data = {

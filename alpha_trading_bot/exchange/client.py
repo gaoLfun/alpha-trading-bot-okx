@@ -11,12 +11,24 @@ import time
 from functools import wraps
 
 from ..core.exceptions import ExchangeError
-from .models import ExchangeConfig, TickerData, OrderBookData, BalanceData, OrderResult, OrderStatus, TradeSide
+from .models import (
+    ExchangeConfig,
+    TickerData,
+    OrderBookData,
+    BalanceData,
+    OrderResult,
+    OrderStatus,
+    TradeSide,
+)
 
 logger = logging.getLogger(__name__)
 
-def retry_on_network_error(max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
+
+def retry_on_network_error(
+    max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0
+):
     """网络错误重试装饰器"""
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -26,10 +38,16 @@ def retry_on_network_error(max_retries: int = 3, delay: float = 1.0, backoff: fl
             for attempt in range(max_retries + 1):
                 try:
                     return await func(*args, **kwargs)
-                except (ccxt.NetworkError, ccxt.RequestTimeout, ccxt.ExchangeNotAvailable) as e:
+                except (
+                    ccxt.NetworkError,
+                    ccxt.RequestTimeout,
+                    ccxt.ExchangeNotAvailable,
+                ) as e:
                     last_exception = e
                     if attempt < max_retries:
-                        logger.warning(f"网络错误 (尝试 {attempt + 1}/{max_retries + 1}): {e}，{current_delay}秒后重试")
+                        logger.warning(
+                            f"网络错误 (尝试 {attempt + 1}/{max_retries + 1}): {e}，{current_delay}秒后重试"
+                        )
                         await asyncio.sleep(current_delay)
                         current_delay *= backoff
                     else:
@@ -43,7 +61,9 @@ def retry_on_network_error(max_retries: int = 3, delay: float = 1.0, backoff: fl
                 raise last_exception
 
         return wrapper
+
     return decorator
+
 
 class ExchangeClient:
     """交易所客户端"""
@@ -64,6 +84,7 @@ class ExchangeClient:
         """初始化交易所客户端"""
         try:
             from ..config import load_config
+
             config_manager = load_config()
 
             # 检查是否为测试模式
@@ -79,7 +100,7 @@ class ExchangeClient:
                     sandbox=True,
                     symbol=config_manager.exchange.symbol,
                     leverage=config_manager.trading.leverage,
-                    margin_mode=config_manager.trading.margin_mode
+                    margin_mode=config_manager.trading.margin_mode,
                 )
 
                 # 在测试模式下，仍然需要创建交易所实例以支持 markets 等属性访问
@@ -87,28 +108,32 @@ class ExchangeClient:
                     exchange_class = getattr(ccxt, self.config.exchange)
                     # 创建测试模式的交易所实例（使用模拟配置）
                     exchange_config = {
-                        'apiKey': self.config.api_key,
-                        'secret': self.config.secret,
-                        'password': self.config.password,
-                        'sandbox': self.config.sandbox,
-                        'options': {
-                            'defaultType': 'future',
-                            'marginMode': self.config.margin_mode,
-                            'leverage': self.config.leverage
+                        "apiKey": self.config.api_key,
+                        "secret": self.config.secret,
+                        "password": self.config.password,
+                        "sandbox": self.config.sandbox,
+                        "options": {
+                            "defaultType": "future",
+                            "marginMode": self.config.margin_mode,
+                            "leverage": self.config.leverage,
                         },
-                        'enableRateLimit': True,
-                        'timeout': 30000  # 30秒超时
+                        "enableRateLimit": True,
+                        "timeout": 30000,  # 30秒超时
                     }
                     self.exchange = exchange_class(exchange_config)
                     # 加载市场数据（测试模式也加载，避免空 markets）
                     await self.exchange.load_markets()
                     logger.info("测试模式交易所实例创建成功")
                 except Exception as e:
-                    logger.warning(f"测试模式创建交易所实例失败: {e}，将使用空 markets 配置")
+                    logger.warning(
+                        f"测试模式创建交易所实例失败: {e}，将使用空 markets 配置"
+                    )
+
                     # 如果创建失败，创建一个mock exchange对象
                     class MockExchange:
                         def __init__(self):
                             self.markets = {}
+
                     self.exchange = MockExchange()
 
                 self._initialized = True
@@ -123,7 +148,7 @@ class ExchangeClient:
                 sandbox=config_manager.exchange.sandbox,
                 symbol=config_manager.exchange.symbol,
                 leverage=config_manager.trading.leverage,
-                margin_mode=config_manager.trading.margin_mode
+                margin_mode=config_manager.trading.margin_mode,
             )
 
             # 获取网络配置
@@ -134,47 +159,55 @@ class ExchangeClient:
 
             # 构建交易所配置
             exchange_config = {
-                'apiKey': self.config.api_key,
-                'secret': self.config.secret,
-                'password': self.config.password,
-                'sandbox': self.config.sandbox,
-                'options': {
-                    'defaultType': 'future',
-                    'marginMode': self.config.margin_mode,
-                    'leverage': self.config.leverage
+                "apiKey": self.config.api_key,
+                "secret": self.config.secret,
+                "password": self.config.password,
+                "sandbox": self.config.sandbox,
+                "options": {
+                    "defaultType": "future",
+                    "marginMode": self.config.margin_mode,
+                    "leverage": self.config.leverage,
                 },
-                'enableRateLimit': True,
-                'timeout': network_config.timeout * 1000  # CCXT uses milliseconds
+                "enableRateLimit": True,
+                "timeout": network_config.timeout * 1000,  # CCXT uses milliseconds
             }
 
             # 根据代理开关添加代理配置
             if network_config.proxy_enabled:
                 logger.info(f"代理已启用，正在配置代理...")
                 if network_config.http_proxy:
-                    exchange_config['aiohttp_proxy'] = network_config.http_proxy
-                    exchange_config['proxy'] = network_config.http_proxy
+                    exchange_config["aiohttp_proxy"] = network_config.http_proxy
+                    exchange_config["proxy"] = network_config.http_proxy
                     logger.info(f"使用HTTP代理: {network_config.http_proxy}")
                 elif network_config.https_proxy:
-                    exchange_config['aiohttp_proxy'] = network_config.https_proxy
-                    exchange_config['proxy'] = network_config.https_proxy
+                    exchange_config["aiohttp_proxy"] = network_config.https_proxy
+                    exchange_config["proxy"] = network_config.https_proxy
                     logger.info(f"使用HTTPS代理: {network_config.https_proxy}")
                 else:
                     logger.warning("代理已启用但未配置代理地址")
             else:
                 logger.info("代理未启用")
 
-            logger.info(f"正在创建交易所实例: {self.config.exchange}, sandbox: {self.config.sandbox}, timeout: {network_config.timeout}s")
+            logger.info(
+                f"正在创建交易所实例: {self.config.exchange}, sandbox: {self.config.sandbox}, timeout: {network_config.timeout}s"
+            )
             self.exchange = exchange_class(exchange_config)
 
             # 加载市场数据
             await self.exchange.load_markets()
 
             # 设置杠杆（如果是合约交易）
-            if hasattr(self.exchange, 'set_leverage'):
+            if hasattr(self.exchange, "set_leverage"):
                 try:
-                    logger.info(f"准备设置杠杆: {self.config.leverage}x for {self.config.symbol}")
-                    logger.info(f"当前配置: exchange={self.config.exchange}, symbol={self.config.symbol}, leverage={self.config.leverage}")
-                    success = await self.set_leverage(self.config.leverage, self.config.symbol)
+                    logger.info(
+                        f"准备设置杠杆: {self.config.leverage}x for {self.config.symbol}"
+                    )
+                    logger.info(
+                        f"当前配置: exchange={self.config.exchange}, symbol={self.config.symbol}, leverage={self.config.leverage}"
+                    )
+                    success = await self.set_leverage(
+                        self.config.leverage, self.config.symbol
+                    )
                     if success:
                         logger.info(f"杠杆设置成功: {self.config.leverage}x")
                     else:
@@ -182,6 +215,7 @@ class ExchangeClient:
                 except Exception as e:
                     logger.error(f"设置杠杆异常: {e}")
                     import traceback
+
                     logger.error(f"详细错误: {traceback.format_exc()}")
                     # 即使杠杆设置失败，系统仍继续运行
                     logger.warning("杠杆设置失败，但系统将继续初始化...")
@@ -207,6 +241,7 @@ class ExchangeClient:
             # 测试模式返回模拟数据
             if self._test_mode:
                 import random
+
                 base_price = 50000.0
                 price_variation = random.uniform(-0.01, 0.01)
                 current_price = base_price * (1 + price_variation)
@@ -218,18 +253,20 @@ class ExchangeClient:
                     last=current_price,
                     high=current_price * 1.02,
                     low=current_price * 0.98,
-                    volume=random.uniform(100, 1000)
+                    volume=random.uniform(100, 1000),
                 )
 
             ticker = await self.exchange.fetch_ticker(symbol)
 
             # 添加调试日志，查看实际获取的ticker数据
-            logger.info(f"从交易所获取的ticker数据: symbol={symbol}, last={ticker.get('last')}, volume={ticker.get('volume')}, baseVolume={ticker.get('baseVolume')}")
+            logger.info(
+                f"从交易所获取的ticker数据: symbol={symbol}, last={ticker.get('last')}, volume={ticker.get('volume')}, baseVolume={ticker.get('baseVolume')}"
+            )
 
             # OKX交易所的特殊处理：24小时成交量在baseVolume字段而不是volume字段
-            volume = ticker.get('volume')
+            volume = ticker.get("volume")
             if volume is None or volume == 0:
-                volume = ticker.get('baseVolume', 0)
+                volume = ticker.get("baseVolume", 0)
                 if volume > 0:
                     logger.info(f"使用baseVolume作为成交量: {volume}")
                 else:
@@ -238,12 +275,12 @@ class ExchangeClient:
             # Handle missing fields gracefully
             return TickerData(
                 symbol=symbol,
-                bid=ticker.get('bid', 0),
-                ask=ticker.get('ask', 0),
-                last=ticker.get('last', 0),
-                high=ticker.get('high', 0),
-                low=ticker.get('low', 0),
-                volume=volume
+                bid=ticker.get("bid", 0),
+                ask=ticker.get("ask", 0),
+                last=ticker.get("last", 0),
+                high=ticker.get("high", 0),
+                low=ticker.get("low", 0),
+                volume=volume,
             )
         except Exception as e:
             logger.error(f"获取行情数据失败: {e}")
@@ -256,6 +293,7 @@ class ExchangeClient:
             # 测试模式返回模拟数据
             if self._test_mode:
                 import random
+
                 base_price = 50000.0
 
                 # 生成模拟买卖盘
@@ -270,17 +308,11 @@ class ExchangeClient:
                     bids.append([bid_price, bid_volume])
                     asks.append([ask_price, ask_volume])
 
-                return OrderBookData(
-                    symbol=symbol,
-                    bids=bids,
-                    asks=asks
-                )
+                return OrderBookData(symbol=symbol, bids=bids, asks=asks)
 
             orderbook = await self.exchange.fetch_order_book(symbol, limit)
             return OrderBookData(
-                symbol=symbol,
-                bids=orderbook['bids'],
-                asks=orderbook['asks']
+                symbol=symbol, bids=orderbook["bids"], asks=orderbook["asks"]
             )
         except Exception as e:
             logger.error(f"获取订单簿数据失败: {e}")
@@ -295,47 +327,50 @@ class ExchangeClient:
             if self._test_mode:
                 logger.info("测试模式：返回模拟余额数据")
                 return BalanceData(
-                    total=10000.0,
-                    free=9000.0,
-                    used=1000.0,
-                    currency='USDT'
+                    total=10000.0, free=9000.0, used=1000.0, currency="USDT"
                 )
 
             balance = await self.exchange.fetch_balance()
-            usdt_balance = balance.get('USDT', {})
+            usdt_balance = balance.get("USDT", {})
             return BalanceData(
-                total=usdt_balance.get('total', 0),
-                free=usdt_balance.get('free', 0),
-                used=usdt_balance.get('used', 0),
-                currency='USDT'
+                total=usdt_balance.get("total", 0),
+                free=usdt_balance.get("free", 0),
+                used=usdt_balance.get("used", 0),
+                currency="USDT",
             )
         except Exception as e:
             logger.error(f"获取账户余额失败: {e}")
             raise ExchangeError(f"获取账户余额失败: {e}")
 
+    # 添加别名方法以兼容性
+    async def get_balance(self) -> BalanceData:
+        """获取账户余额（别名方法）"""
+        return await self.fetch_balance()
+
     async def create_order(self, order_request: Dict[str, Any]) -> OrderResult:
         """创建订单"""
         try:
-            symbol = order_request['symbol']
-            type_ = order_request.get('type', 'market')
-            side = order_request['side']
-            amount = order_request['amount']
-            price = order_request.get('price')
+            symbol = order_request["symbol"]
+            type_ = order_request.get("type", "market")
+            side = order_request["side"]
+            amount = order_request["amount"]
+            price = order_request.get("price")
 
             # 测试模式：跳过交易所验证，直接返回模拟订单
             if self._test_mode:
                 import uuid
+
                 order_id = str(uuid.uuid4())
                 client_order_id = str(uuid.uuid4())
 
                 # 获取请求中的client_order_id（如果存在）
-                if 'client_order_id' in order_request:
-                    client_order_id = order_request['client_order_id']
-                elif 'clientOrderId' in order_request:
-                    client_order_id = order_request['clientOrderId']
+                if "client_order_id" in order_request:
+                    client_order_id = order_request["client_order_id"]
+                elif "clientOrderId" in order_request:
+                    client_order_id = order_request["clientOrderId"]
 
                 # 模拟市价单立即成交
-                if type_ == 'market':
+                if type_ == "market":
                     filled_amount = amount
                     status = OrderStatus.CLOSED
                 else:
@@ -356,20 +391,22 @@ class ExchangeClient:
                     status=status,
                     type=OrderType(type_),
                     created_at=datetime.now(),
-                    updated_at=datetime.now()
+                    updated_at=datetime.now(),
                 )
 
             # 验证最小交易量（仅在非测试模式下）
             if symbol in self.exchange.markets:
                 market = self.exchange.markets[symbol]
-                min_amount = market.get('limits', {}).get('amount', {}).get('min', 0)
-                amount_precision = market.get('precision', {}).get('amount', 0)
+                min_amount = market.get("limits", {}).get("amount", {}).get("min", 0)
+                amount_precision = market.get("precision", {}).get("amount", 0)
 
                 if min_amount and amount < min_amount:
-                    logger.error(f"订单数量 {amount} 小于交易所最小交易量 {min_amount} for {symbol}")
+                    logger.error(
+                        f"订单数量 {amount} 小于交易所最小交易量 {min_amount} for {symbol}"
+                    )
                     return OrderResult(
                         success=False,
-                        error_message=f"订单数量必须大于等于 {min_amount}"
+                        error_message=f"订单数量必须大于等于 {min_amount}",
                     )
 
                 # 根据精度调整数量
@@ -386,7 +423,9 @@ class ExchangeClient:
                             # 计算最接近的精度倍数
                             multiplier = round(amount / amount_precision)
                             amount = multiplier * amount_precision
-                            logger.info(f"根据交易所精度({amount_precision})调整订单数量至: {amount} (倍数: {multiplier})")
+                            logger.info(
+                                f"根据交易所精度({amount_precision})调整订单数量至: {amount} (倍数: {multiplier})"
+                            )
                         else:
                             # 其他情况，按正常四舍五入处理
                             precision_int = int(amount_precision)
@@ -394,15 +433,17 @@ class ExchangeClient:
                             logger.info(f"根据交易所精度调整订单数量至: {amount}")
                     except (ValueError, TypeError):
                         # 如果精度无效，保持原数量
-                        logger.warning(f"交易所精度格式无效: {amount_precision}，保持原数量: {amount}")
+                        logger.warning(
+                            f"交易所精度格式无效: {amount_precision}，保持原数量: {amount}"
+                        )
 
             params = {}
-            if 'reduce_only' in order_request:
-                params['reduceOnly'] = order_request['reduce_only']
-            if 'post_only' in order_request:
-                params['postOnly'] = order_request['post_only']
-            if 'client_order_id' in order_request:
-                params['clientOrderId'] = order_request['client_order_id']
+            if "reduce_only" in order_request:
+                params["reduceOnly"] = order_request["reduce_only"]
+            if "post_only" in order_request:
+                params["postOnly"] = order_request["post_only"]
+            if "client_order_id" in order_request:
+                params["clientOrderId"] = order_request["client_order_id"]
 
             order = await self.exchange.create_order(
                 symbol=symbol,
@@ -410,37 +451,36 @@ class ExchangeClient:
                 side=side,
                 amount=amount,
                 price=price,
-                params=params
+                params=params,
             )
 
             # 调试：检查订单状态
-            logger.info(f"[交易所客户端] 订单创建成功 - ID: {order['id']}, 状态: {order.get('status', 'None')}, 数量: {order['amount']}, 价格: {order.get('price', 0)}")
+            logger.info(
+                f"[交易所客户端] 订单创建成功 - ID: {order['id']}, 状态: {order.get('status', 'None')}, 数量: {order['amount']}, 价格: {order.get('price', 0)}"
+            )
 
             # 处理可能的None状态
-            order_status = order.get('status')
+            order_status = order.get("status")
             if order_status is None:
                 logger.warning("[交易所客户端] 订单状态为None，使用默认值")
-                order_status = 'closed'  # 市价单默认已成交
+                order_status = "closed"  # 市价单默认已成交
 
             return OrderResult(
                 success=True,
-                order_id=order['id'],
-                client_order_id=order.get('clientOrderId'),
-                symbol=order['symbol'],
-                side=TradeSide(order['side']),
-                amount=order['amount'],
-                price=order.get('price', 0),
-                filled_amount=order.get('filled', 0),
-                average_price=order.get('average', 0),
-                status=OrderStatus(order_status)
+                order_id=order["id"],
+                client_order_id=order.get("clientOrderId"),
+                symbol=order["symbol"],
+                side=TradeSide(order["side"]),
+                amount=order["amount"],
+                price=order.get("price", 0),
+                filled_amount=order.get("filled", 0),
+                average_price=order.get("average", 0),
+                status=OrderStatus(order_status),
             )
 
         except Exception as e:
             logger.error(f"创建订单失败: {e}")
-            return OrderResult(
-                success=False,
-                error_message=str(e)
-            )
+            return OrderResult(success=False, error_message=str(e))
 
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
         """取消订单"""
@@ -457,24 +497,23 @@ class ExchangeClient:
             order = await self.exchange.fetch_order(order_id, symbol)
             return OrderResult(
                 success=True,
-                order_id=order['id'],
-                client_order_id=order.get('clientOrderId'),
-                symbol=order['symbol'],
-                side=TradeSide(order['side']),
-                amount=order['amount'],
-                price=order.get('price', 0),
-                filled_amount=order.get('filled', 0),
-                average_price=order.get('average', 0),
-                status=OrderStatus(order['status'])
+                order_id=order["id"],
+                client_order_id=order.get("clientOrderId"),
+                symbol=order["symbol"],
+                side=TradeSide(order["side"]),
+                amount=order["amount"],
+                price=order.get("price", 0),
+                filled_amount=order.get("filled", 0),
+                average_price=order.get("average", 0),
+                status=OrderStatus(order["status"]),
             )
         except Exception as e:
             logger.error(f"获取订单详情失败: {e}")
-            return OrderResult(
-                success=False,
-                error_message=str(e)
-            )
+            return OrderResult(success=False, error_message=str(e))
 
-    async def fetch_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def fetch_positions(
+        self, symbol: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """获取仓位信息"""
         try:
             # 测试模式返回模拟仓位数据
@@ -485,13 +524,17 @@ class ExchangeClient:
                 return []
 
             # 简化日志 - 只在有仓位时显示关键信息
-            positions = await self.exchange.fetch_positions([symbol] if symbol else None)
+            positions = await self.exchange.fetch_positions(
+                [symbol] if symbol else None
+            )
 
             if positions and len(positions) > 0:
                 # 只记录简要信息
                 for pos in positions:
-                    if pos.get('contracts', 0) != 0:  # 有实际仓位
-                        logger.info(f"获取仓位: {pos.get('symbol', 'unknown')} {pos.get('side', 'unknown')} {pos.get('contracts', 0)} 张")
+                    if pos.get("contracts", 0) != 0:  # 有实际仓位
+                        logger.info(
+                            f"获取仓位: {pos.get('symbol', 'unknown')} {pos.get('side', 'unknown')} {pos.get('contracts', 0)} 张"
+                        )
             else:
                 logger.debug(f"未获取到仓位信息: {symbol}")
 
@@ -500,7 +543,9 @@ class ExchangeClient:
                 return positions
 
             # 如果指定了符号，过滤出指定符号的仓位
-            filtered_positions = [pos for pos in positions if pos.get('symbol') == symbol]
+            filtered_positions = [
+                pos for pos in positions if pos.get("symbol") == symbol
+            ]
             return filtered_positions
         except Exception as e:
             logger.error(f"获取仓位信息失败: {e}")
@@ -521,16 +566,21 @@ class ExchangeClient:
             # 添加详细日志用于调试
             logger.info(f"杠杆设置失败详情: {error_msg}")
             logger.info(f"错误码分析: code=59669 在错误中: {'59669' in error_msg}")
-            logger.info(f"算法订单关键词检测: {'cancel cross-margin tp/sl' in error_lower}")
+            logger.info(
+                f"算法订单关键词检测: {'cancel cross-margin tp/sl' in error_lower}"
+            )
 
             # 检查是否是因为存在算法订单导致的错误
             # OKX错误码59669表示存在活跃的算法订单
-            if '59669' in error_msg or any(keyword in error_lower for keyword in [
-                'cancel cross-margin tp/sl',
-                'trailing, trigger, and chase orders',
-                'stop bots before adjusting your leverage',
-                'cancel.*orders.*before.*adjusting.*leverage'
-            ]):
+            if "59669" in error_msg or any(
+                keyword in error_lower
+                for keyword in [
+                    "cancel cross-margin tp/sl",
+                    "trailing, trigger, and chase orders",
+                    "stop bots before adjusting your leverage",
+                    "cancel.*orders.*before.*adjusting.*leverage",
+                ]
+            ):
                 logger.warning(f"设置杠杆失败，存在活跃算法订单: {e}")
                 logger.info("尝试取消算法订单后重新设置杠杆...")
 
@@ -553,7 +603,10 @@ class ExchangeClient:
                     return False
 
             # 检查是否是已存在订单或设置的错误
-            elif any(keyword in error_lower for keyword in ['already exist', '已存在', 'duplicate', '重复']):
+            elif any(
+                keyword in error_lower
+                for keyword in ["already exist", "已存在", "duplicate", "重复"]
+            ):
                 logger.info(f"杠杆设置已存在，无需重复设置: {e}")
                 return True  # 视为成功，因为杠杆已经设置
             else:
@@ -564,23 +617,27 @@ class ExchangeClient:
         """保存并取消算法订单"""
         try:
             # 转换符号格式
-            inst_id = symbol.replace('/USDT:USDT', '-USDT-SWAP').replace('/', '-')
-            logger.info(f"[_save_and_cancel_algo_orders] 转换符号: {symbol} -> {inst_id}")
+            inst_id = symbol.replace("/USDT:USDT", "-USDT-SWAP").replace("/", "-")
+            logger.info(
+                f"[_save_and_cancel_algo_orders] 转换符号: {symbol} -> {inst_id}"
+            )
 
             # 获取当前算法订单
-            algo_orders = await self.exchange.private_get_trade_orders_algo_pending({
-                'instId': inst_id,
-                'ordType': 'trigger'
-            })
+            algo_orders = await self.exchange.private_get_trade_orders_algo_pending(
+                {"instId": inst_id, "ordType": "trigger"}
+            )
 
-            orders_data = algo_orders.get('data', [])
+            orders_data = algo_orders.get("data", [])
             if not orders_data:
                 return []
 
             logger.info(f"发现 {len(orders_data)} 个活跃算法订单，正在取消...")
 
             # 取消所有算法订单
-            cancel_params = [{'algoId': order['algoId'], 'instId': order['instId']} for order in orders_data]
+            cancel_params = [
+                {"algoId": order["algoId"], "instId": order["instId"]}
+                for order in orders_data
+            ]
             await self.exchange.private_post_trade_cancel_algos(cancel_params)
 
             logger.info(f"已取消 {len(orders_data)} 个算法订单")
@@ -590,33 +647,39 @@ class ExchangeClient:
             logger.error(f"保存并取消算法订单失败: {e}")
             return []
 
-    async def _restore_algo_orders(self, symbol: str, orders: List[Dict[str, Any]]) -> None:
+    async def _restore_algo_orders(
+        self, symbol: str, orders: List[Dict[str, Any]]
+    ) -> None:
         """恢复算法订单"""
         try:
             for order in orders:
                 try:
                     # 重新创建算法订单
                     params = {
-                        'instId': order['instId'],
-                        'triggerPx': order['triggerPx'],
-                        'orderPx': order['ordPx'],
-                        'triggerPxType': order.get('triggerPxType', 'last'),
-                        'tdMode': order['tdMode'],
-                        'ordType': order['ordType'],
-                        'side': order['side'],
-                        'sz': order['sz']
+                        "instId": order["instId"],
+                        "triggerPx": order["triggerPx"],
+                        "orderPx": order["ordPx"],
+                        "triggerPxType": order.get("triggerPxType", "last"),
+                        "tdMode": order["tdMode"],
+                        "ordType": order["ordType"],
+                        "side": order["side"],
+                        "sz": order["sz"],
                     }
 
                     await self.exchange.private_post_trade_order_algo(params)
                     logger.info(f"恢复算法订单成功: {order['algoId']}")
 
                 except Exception as restore_error:
-                    logger.error(f"恢复单个算法订单失败 {order['algoId']}: {restore_error}")
+                    logger.error(
+                        f"恢复单个算法订单失败 {order['algoId']}: {restore_error}"
+                    )
 
         except Exception as e:
             logger.error(f"恢复算法订单过程失败: {e}")
 
-    async def fetch_ohlcv(self, symbol: str, timeframe: str = '5m', limit: int = 100) -> List[List[float]]:
+    async def fetch_ohlcv(
+        self, symbol: str, timeframe: str = "5m", limit: int = 100
+    ) -> List[List[float]]:
         """获取K线数据 - 增强版"""
         try:
             # 添加参数验证
@@ -646,7 +709,9 @@ class ExchangeClient:
                 else:
                     logger.warning(f"跳过无效的K线数据: {candle}")
 
-            logger.info(f"成功获取 {len(valid_candles)}/{len(ohlcv)} 根K线数据: {symbol}, {timeframe}")
+            logger.info(
+                f"成功获取 {len(valid_candles)}/{len(ohlcv)} 根K线数据: {symbol}, {timeframe}"
+            )
             return valid_candles
 
         except ccxt.NetworkError as e:
