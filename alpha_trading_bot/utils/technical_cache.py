@@ -430,7 +430,7 @@ class CachedTechnicalIndicators(TechnicalIndicators):
 
         return adx_values
 
-    def calculate_all_indicators(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
+    def calculate_all_indicators(self, market_data: dict[str, Any]) -> dict[str, Any]:
         """计算所有指标（带缓存）"""
         try:
             high = market_data.get("high_prices", [])

@@ -72,7 +72,7 @@ class TradeExecutor(BaseComponent):
 
             # 🆕 集成交易成本优化器 - 选择最优执行策略
             try:
-                from ...trading.transaction_cost_optimizer import (
+                from ...trading_optimizers.transaction_cost_optimizer import (
                     TransactionCostOptimizer,
                 )
 

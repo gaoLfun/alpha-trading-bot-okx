@@ -650,7 +650,9 @@ class TradingBot(BaseComponent):
 
         # 🆕 集成动态冷却管理器 - 检查交易频率限制
         try:
-            from ..trading.dynamic_trade_cooling import DynamicTradeCoolingManager
+            from ..trading_optimizers.dynamic_trade_cooling import (
+                DynamicTradeCoolingManager,
+            )
 
             if not hasattr(self, "_cooling_manager"):
                 self._cooling_manager = DynamicTradeCoolingManager()

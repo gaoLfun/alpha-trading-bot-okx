@@ -4,7 +4,7 @@
 """
 
 import numpy as np
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Tuple, Dict, Any, Sequence
 import logging
 from .price_calculator import PriceCalculator
 
@@ -47,7 +47,7 @@ class TechnicalIndicators:
             atr_values = [0.0] * period
             if len(tr_values) >= period:
                 initial_atr = np.mean(tr_values[:period])
-                atr_values[period - 1] = initial_atr
+                atr_values[period - 1] = float(initial_atr)
 
                 # 计算后续ATR值（使用平滑公式）
                 for i in range(period, len(tr_values)):
@@ -186,7 +186,7 @@ class TechnicalIndicators:
                 initial_plus_dm = np.mean(plus_dm_values[:period])
                 initial_minus_dm = np.mean(minus_dm_values[:period])
 
-                atr_values[period - 1] = initial_atr
+                atr_values[period - 1] = float(initial_atr)
                 plus_dm_smooth = initial_plus_dm
                 minus_dm_smooth = initial_minus_dm
 
@@ -221,7 +221,7 @@ class TechnicalIndicators:
             adx_values = [0.0] * (period * 2 - 1)
             if len(dx_values) >= period:
                 initial_adx = np.mean(dx_values[period - 1 : period * 2 - 1])
-                adx_values[period * 2 - 2] = initial_adx
+                adx_values[period * 2 - 2] = float(initial_adx)
 
                 for i in range(period * 2 - 1, len(dx_values)):
                     adx = (adx_values[i - 1] * (period - 1) + dx_values[i]) / period

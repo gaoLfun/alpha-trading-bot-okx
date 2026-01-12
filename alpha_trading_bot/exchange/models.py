@@ -81,7 +81,7 @@ class OrderResult:
     average_price: float = 0.0
     status: Optional[OrderStatus] = None
     error_message: Optional[str] = None
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
     fee: float = 0.0
 
     def __post_init__(self):
@@ -101,10 +101,10 @@ class PositionInfo:
     realized_pnl: float
     margin: float
     leverage: float
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
     # 多级止盈相关字段
-    tp_levels_hit: List[int] = None  # 已触发的止盈级别列表
-    tp_orders_info: Dict[str, Any] = None  # 止盈订单信息 {order_id: {level: int, amount: float, price: float}}
+    tp_levels_hit: Optional[List[int]] = None
+    tp_orders_info: Optional[Dict[str, Any]] = None
     original_amount: float = 0.0  # 原始仓位数量（用于计算部分平仓比例）
 
     def __post_init__(self):
@@ -126,7 +126,7 @@ class TradeResult:
     filled_amount: float = 0.0
     average_price: float = 0.0
     fee: float = 0.0
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -153,7 +153,7 @@ class TickerData:
     high: float
     low: float
     volume: float
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -165,7 +165,7 @@ class OrderBookData:
     symbol: str
     bids: List[List[float]]  # [[price, amount], ...]
     asks: List[List[float]]  # [[price, amount], ...]
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -178,7 +178,7 @@ class BalanceData:
     free: float
     used: float
     currency: str
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
 
     def __post_init__(self):
         if self.timestamp is None:

@@ -30,3 +30,6 @@ __all__ = [
     'ConfigurationError',
     'ExchangeError'
 ]
+# 新增：重构后的组件
+from .scheduler import TradeScheduler, SchedulerConfig
+from .risk_monitor import RiskMonitor, RiskMonitorConfig
