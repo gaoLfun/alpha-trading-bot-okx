@@ -81,30 +81,30 @@ class MarketVolatilityAdapter:
             },
         }
 
-        # 默认策略参数映射
+        # 默认策略参数映射（优化后：降低低波动市场的信号阈值，允许更多交易）
         self.default_strategy_map = {
             VolatilityRegime.EXTREMELY_LOW: AdaptiveStrategyParameters(
-                signal_threshold=0.85,  # 高信号阈值
-                position_size_multiplier=0.3,  # 小仓位
-                stop_loss_percentage=0.008,  # 紧止损
-                take_profit_percentage=0.04,  # 低止盈目标
-                cooling_minutes=60,  # 长冷却
-                max_trades_per_hour=1,  # 很少交易
-                order_type_preference="limit",  # 限价单
-                risk_multiplier=0.5,  # 低风险
+                signal_threshold=0.65,  # 原为0.85，降低以允许低波动市场交易
+                position_size_multiplier=0.5,  # 原为0.3，增加仓位
+                stop_loss_percentage=0.008,
+                take_profit_percentage=0.04,
+                cooling_minutes=45,  # 原为60，减少冷却时间
+                max_trades_per_hour=2,  # 原为1，增加交易频率
+                order_type_preference="limit",
+                risk_multiplier=0.7,  # 原为0.5，增加风险容忍
             ),
             VolatilityRegime.LOW: AdaptiveStrategyParameters(
-                signal_threshold=0.75,
-                position_size_multiplier=0.5,
+                signal_threshold=0.60,  # 原为0.75，降低以允许交易
+                position_size_multiplier=0.7,  # 原为0.5，增加仓位
                 stop_loss_percentage=0.012,
                 take_profit_percentage=0.06,
-                cooling_minutes=30,
-                max_trades_per_hour=2,
+                cooling_minutes=25,  # 原为30，减少冷却
+                max_trades_per_hour=3,  # 原为2，增加交易频率
                 order_type_preference="limit",
-                risk_multiplier=0.7,
+                risk_multiplier=0.85,  # 原为0.7，增加风险容忍
             ),
             VolatilityRegime.NORMAL: AdaptiveStrategyParameters(
-                signal_threshold=0.65,
+                signal_threshold=0.55,  # 原为0.65
                 position_size_multiplier=1.0,
                 stop_loss_percentage=0.015,
                 take_profit_percentage=0.08,
@@ -114,7 +114,7 @@ class MarketVolatilityAdapter:
                 risk_multiplier=1.0,
             ),
             VolatilityRegime.HIGH: AdaptiveStrategyParameters(
-                signal_threshold=0.55,
+                signal_threshold=0.50,  # 原为0.55
                 position_size_multiplier=1.5,
                 stop_loss_percentage=0.025,
                 take_profit_percentage=0.12,
@@ -124,7 +124,7 @@ class MarketVolatilityAdapter:
                 risk_multiplier=1.3,
             ),
             VolatilityRegime.EXTREMELY_HIGH: AdaptiveStrategyParameters(
-                signal_threshold=0.45,
+                signal_threshold=0.45,  # 原为0.45
                 position_size_multiplier=2.0,
                 stop_loss_percentage=0.04,
                 take_profit_percentage=0.15,
@@ -134,14 +134,14 @@ class MarketVolatilityAdapter:
                 risk_multiplier=1.5,
             ),
             VolatilityRegime.CHAOTIC: AdaptiveStrategyParameters(
-                signal_threshold=0.90,  # 极高阈值，几乎不交易
-                position_size_multiplier=0.1,  # 极小仓位
-                stop_loss_percentage=0.02,  # 保守止损
-                take_profit_percentage=0.05,  # 低目标
-                cooling_minutes=120,  # 极长冷却
-                max_trades_per_hour=1,  # 极少交易
-                order_type_preference="limit",  # 限价单
-                risk_multiplier=0.3,  # 极低风险
+                signal_threshold=0.70,  # 原为0.90，降低以允许一定交易
+                position_size_multiplier=0.3,  # 原为0.1，增加仓位
+                stop_loss_percentage=0.02,
+                take_profit_percentage=0.05,
+                cooling_minutes=60,  # 原为120，减少冷却
+                max_trades_per_hour=2,  # 原为1，增加交易频率
+                order_type_preference="limit",
+                risk_multiplier=0.5,  # 原为0.3，增加风险容忍
             ),
         }
 

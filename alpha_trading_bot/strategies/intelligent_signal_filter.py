@@ -26,9 +26,12 @@ class IntelligentSignalFilter:
     """智能信号过滤器"""
 
     def __init__(self):
-        # 配置参数
-        self.min_confidence_high_quality = 0.75  # 高质量信号最低置信度
-        self.min_confidence_medium_quality = 0.60  # 中等质量信号最低置信度
+        # 配置参数（优化后：降低阈值，允许更多信号通过）
+        self.min_confidence_high_quality = 0.70  # 原为0.75，高质量信号最低置信度
+        self.min_confidence_medium_quality = 0.50  # 原为0.60，中等质量信号最低置信度
+        self.min_confidence_low_quality = (
+            0.40  # 新增：低质量信号最低阈值（原来是0.50直接过滤）
+        )
 
         # 信号历史记录（用于避免重复信号）
         self.signal_history: List[Dict] = []
@@ -68,7 +71,7 @@ class IntelligentSignalFilter:
         signal_type = signal.get("signal", signal.get("type", "HOLD")).upper()
         confidence = signal.get("confidence", 0.5)
 
-        # 1. 基础置信度评分 (0-30分)
+        # 1. 基础置信度评分 (0-30分) - 优化后：放宽过滤条件
         if confidence >= 0.85:
             score += 30
             confidence_level = "HIGH"
@@ -81,10 +84,17 @@ class IntelligentSignalFilter:
             score += 10
             confidence_level = "LOW"
             reasons.append("⚠️  低置信度信号 (< 70%)")
-        else:
+        elif (
+            confidence >= 0.40
+        ):  # 原为 < 0.50 直接过滤，现改为 0.40-0.50 仍可通过但需额外条件
+            score += 5  # 降低分数但仍通过
+            confidence_level = "LOW"
+            reasons.append("⚠️  临界置信度信号 (40%-50%)")
+            # 不设置 passed = False，允许通过但需要更高综合评分
+        else:  # confidence < 0.40
             score += 0
             confidence_level = "LOW"
-            reasons.append("❌ 置信度过低 (< 50%)")
+            reasons.append("❌ 置信度过低 (< 40%)")
             passed = False
 
         # 2. 市场波动率分析 (0-20分)

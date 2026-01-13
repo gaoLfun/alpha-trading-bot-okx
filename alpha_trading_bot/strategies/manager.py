@@ -483,10 +483,39 @@ class StrategyManager(BaseComponent):
                         f"趋势限制：强势下跌趋势(强度{trend_strength:.2f})禁止买入",
                     )
 
-            # 新增2：严格成交量确认 - 成交量评分必须>0.3（提高阈值）
+            # 新增2：成交量确认 - 成交量评分必须>30（优化后：放宽阈值，单位为0-100）
             volume_score = market_data.get("volume_score", 0)
-            if volume_score < 0.3:
-                logger.warning(f"成交量评分过低({volume_score:.1f} < 0.3)，禁止交易")
+            # 如果 volume_score 为 0，尝试从当前成交量估算
+            if volume_score == 0:
+                current_volume = market_data.get("current_volume", 0)
+                avg_volume = market_data.get("avg_volume_24h", 0)
+                price = market_data.get("price", 0)
+                if current_volume > 0 and avg_volume > 0:
+                    volume_ratio = current_volume / avg_volume
+                    if volume_ratio >= 0.5:
+                        volume_score = 80
+                    elif volume_ratio >= 0.2:
+                        volume_score = 60
+                    elif volume_ratio >= 0.05:
+                        volume_score = 40
+                    else:
+                        volume_score = 30
+                    logger.info(
+                        f"估算成交量评分: {volume_score:.1f} (比例: {volume_ratio:.2f})"
+                    )
+
+            # 如果仍然为0，检查是否是新周期刚开始
+            if volume_score == 0:
+                current_minute = datetime.now().minute
+                if current_minute % 15 <= 2:
+                    volume_score = 40  # 新周期给予基础评分
+                    logger.info("新周期刚开始，成交量评分设为40")
+                elif market_data.get("avg_volume_24h", 0) > 0:
+                    volume_score = 35  # 基于历史数据给予基础评分
+                    logger.info(f"有历史成交量数据，成交量评分设为35")
+
+            if volume_score < 30:
+                logger.warning(f"成交量评分过低({volume_score:.1f} < 30)，禁止交易")
                 return False, f"成交量不足：评分{volume_score:.1f}"
 
             # 检查交易频率
