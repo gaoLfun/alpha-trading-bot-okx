@@ -98,6 +98,7 @@ class AIClient:
 
     def __init__(self):
         self.providers = {}
+        self.cycle_minutes = 15  # 默认15分钟，从配置文件加载
         self.timeout_config = {
             "deepseek": {
                 "connection_timeout": 10.0,
@@ -157,8 +158,13 @@ class AIClient:
 
             config = load_config()
             self.providers = config.ai.models
+            self.cycle_minutes = (
+                config.trading.cycle_minutes
+            )  # 从配置文件加载周期分钟数
 
-            logger.info(f"AI客户端初始化成功，配置 {len(self.providers)} 个提供商")
+            logger.info(
+                f"AI客户端初始化成功，配置 {len(self.providers)} 个提供商，周期: {self.cycle_minutes}分钟"
+            )
             return True
 
         except Exception as e:
@@ -763,7 +769,7 @@ MACD: {macd}
 """,
             "kimi": f"""
 【📈 KIMI 短线分析框架】
-1. 15分钟周期分析
+1. {self.cycle_minutes}分钟周期分析
 2. RSI指标: {rsi:.1f} ({rsi_status})
 3. 价格动能: {price_change_pct:+.2f}%
 4. 支撑阻力: 基于价格位置判断
@@ -777,11 +783,12 @@ MACD: {macd}
 
         # 提供商特定关键分析要求
         if provider == "deepseek":
-            analysis_requirements = """【⚡ DEEPSEEK 技术深度分析要求】
+            cycle_minutes_str = str(self.cycle_minutes)
+            analysis_requirements = f"""【⚡ DEEPSEEK 技术深度分析要求】
 1. 技术指标优先级：MACD > 均线 > RSI，重点关注指标背离和共振信号
 2. 形态识别强化：突破前高/前低、双底/双顶、头肩形态等经典技术形态
 3. 成交量确认：任何信号都需要成交量放大作为支撑，缩量信号不可靠
-4. 多周期验证：15分钟信号需与4小时趋势一致，避免逆势操作
+4. 多周期验证：{cycle_minutes_str}分钟信号需与4小时趋势一致，避免逆势操作
 5. 博弈分析：分析大资金动向，识别机构建仓/出货的关键点位
 6. 精准入场：突破信号+成交量放大+技术指标共振才确认为有效信号"""
         elif provider == "qwen":
@@ -1116,7 +1123,7 @@ MACD: {macd}
                 signal = ai_data.get("signal", "HOLD").upper()
                 confidence = float(ai_data.get("confidence", 0.5))
                 reason = ai_data.get("reason", f"{provider} AI分析")
-                holding_time = ai_data.get("holding_time", "15分钟")
+                holding_time = ai_data.get("holding_time", f"{self.cycle_minutes}分钟")
 
                 # 验证信号有效性
                 if signal not in ["BUY", "SELL", "HOLD"]:
@@ -1152,7 +1159,7 @@ MACD: {macd}
                     "signal": signal,
                     "confidence": confidence,
                     "reason": f"{provider} AI建议: {content[:100]}...",
-                    "holding_time": "15分钟",
+                    "holding_time": f"{self.cycle_minutes}分钟",
                     "timestamp": datetime.now().isoformat(),
                     "provider": provider,
                     "raw_response": content,
@@ -1165,7 +1172,7 @@ MACD: {macd}
                 "signal": "HOLD",
                 "confidence": 0.3,
                 "reason": f"解析AI响应失败: {str(e)}",
-                "holding_time": "15分钟",
+                "holding_time": f"{self.cycle_minutes}分钟",
                 "timestamp": datetime.now().isoformat(),
                 "provider": provider,
                 "raw_response": content,

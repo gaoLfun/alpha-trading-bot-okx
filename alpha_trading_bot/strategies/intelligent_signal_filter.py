@@ -384,10 +384,16 @@ class IntelligentSignalFilter:
 
         # 生成建议的冷却时间
         if not passed and cooldown_minutes == 0:
+            # 从配置加载周期时间
+            from ..config import load_config
+
+            config = load_config()
+            cycle_minutes = config.trading.cycle_minutes
+
             if score < 40:
-                cooldown_minutes = 30  # 低质量信号，冷却30分钟
+                cooldown_minutes = cycle_minutes * 2  # 低质量信号，冷却2个周期
             else:
-                cooldown_minutes = 15  # 中等质量信号，冷却15分钟
+                cooldown_minutes = cycle_minutes  # 中等质量信号，冷却1个周期
 
         # 整理原因
         reasons_sorted = sorted(reasons, key=lambda x: ("❌" in x, "⚠️" in x, "✅" in x))

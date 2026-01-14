@@ -230,12 +230,19 @@ class StrategyManager(BaseComponent):
             # 处理零成交量的特殊情况（没有历史数据时）
             if current_volume == 0:
                 # 检查是否是新周期刚开始（时间接近整点/半点）
+                from ..config import load_config
+
+                config = load_config()
+                cycle_minutes = config.trading.cycle_minutes
+
                 current_minute = datetime.now().minute
-                if current_minute % 15 <= 5:  # 新15分钟周期刚开始5分钟内（原为2分钟）
-                    logger.info("当前处于新15分钟周期初期，成交量为0属于正常现象")
+                if current_minute % cycle_minutes <= 5:  # 新周期刚开始5分钟内
+                    logger.info(
+                        f"当前处于新{cycle_minutes}分钟周期初期，成交量为0属于正常现象"
+                    )
                     return 60  # 给予中等评分，避免过度敏感
                 else:
-                    logger.warning("当前成交量为0且不在新周期初期")
+                    logger.warning(f"当前成交量为0且不在新{cycle_minutes}分钟周期初期")
                     return 0
 
             if avg_volume <= 0:
