@@ -657,8 +657,23 @@ class MarketMonitor:
                 )
                 if ohlcv:
                     logger.info(f"📥 [{symbol}] 交易所返回 {len(ohlcv)} 根K线")
-                    for bar in ohlcv:
-                        await self.data_manager.update_ohlcv(symbol, "15m", bar)
+                    # 批量更新K线数据，添加超时保护
+                    logger.info(f"💾 [{symbol}] 正在更新K线数据...")
+                    for i, bar in enumerate(ohlcv):
+                        try:
+                            await asyncio.wait_for(
+                                self.data_manager.update_ohlcv(symbol, "15m", bar),
+                                timeout=2.0,  # 每根K线最多2秒
+                            )
+                            if (i + 1) % 25 == 0:
+                                logger.info(
+                                    f"💾 [{symbol}] 已更新 {i + 1}/{len(ohlcv)} 根K线"
+                                )
+                        except asyncio.TimeoutError:
+                            logger.warning(
+                                f"⚠️ [{symbol}] update_ohlcv 第{i + 1}根超时，跳过"
+                            )
+                    logger.info(f"💾 [{symbol}] K线数据更新完成")
                 else:
                     logger.warning(f"❌ [{symbol}] 无法获取K线数据")
                     return None
@@ -666,9 +681,16 @@ class MarketMonitor:
                 logger.error(f"❌ [{symbol}] fetch_ohlcv 超时")
                 return None
 
-        # 计算指标
+        # 计算指标 - 添加超时保护
         logger.info(f"🔢 [{symbol}] 正在计算技术指标...")
-        indicator_result = await self._calculate_indicators(symbol, ohlcv)
+        try:
+            indicator_result = await asyncio.wait_for(
+                self._calculate_indicators(symbol, ohlcv),
+                timeout=20.0,  # 指标计算最多20秒
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"⚠️ [{symbol}] _calculate_indicators 超时")
+            return None
 
         if not indicator_result:
             logger.warning(f"❌ [{symbol}] 指标计算失败")
@@ -678,13 +700,26 @@ class MarketMonitor:
             f"✅ [{symbol}] 指标计算完成: RSI={indicator_result.rsi:.1f}, BB={indicator_result.bb_position:.1f}%, ADX={indicator_result.adx:.1f}"
         )
 
-        # 更新指标存储
+        # 更新指标存储 - 添加超时保护
         snapshot = indicator_result.to_indicator_snapshot()
-        await self.data_manager.update_indicator(symbol, snapshot)
+        try:
+            await asyncio.wait_for(
+                self.data_manager.update_indicator(symbol, snapshot),
+                timeout=5.0,  # 最多5秒
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"⚠️ [{symbol}] update_indicator 超时，跳过")
 
-        # 检查信号
+        # 检查信号 - 添加超时保护
         logger.info(f"🎯 [{symbol}] 正在检查交易信号...")
-        result = await self._check_signals(symbol, indicator_result)
+        try:
+            result = await asyncio.wait_for(
+                self._check_signals(symbol, indicator_result),
+                timeout=10.0,  # 最多10秒
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"⚠️ [{symbol}] _check_signals 超时")
+            return None
 
         if result:
             logger.info(
