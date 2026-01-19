@@ -145,6 +145,18 @@ class TradingBot(BaseComponent):
             await self.price_monitor.initialize()
             await self.price_monitor.start_monitoring()
 
+            # 初始化AlphaPulse引擎（代号：阿尔法脉冲）
+            from ..alphapulse import AlphaPulseEngine
+
+            self.alphapulse_engine = AlphaPulseEngine(
+                exchange_client=self.trading_engine.exchange_client,
+                config=None,  # 从环境变量加载
+                trade_executor=self.trading_engine.trade_executor,
+                ai_manager=self.ai_manager,
+                on_signal=self._on_alphapulse_signal,
+            )
+            await self.alphapulse_engine.start()
+
             self._initialized = True
             self.enhanced_logger.logger.info("交易机器人初始化成功")
             return True
@@ -256,6 +268,8 @@ class TradingBot(BaseComponent):
 
     async def cleanup(self) -> None:
         """清理资源"""
+        if hasattr(self, "alphapulse_engine") and self.alphapulse_engine:
+            await self.alphapulse_engine.stop()
         if hasattr(self, "trading_engine"):
             await self.trading_engine.cleanup()
         if hasattr(self, "strategy_manager"):
@@ -268,6 +282,13 @@ class TradingBot(BaseComponent):
             await self.data_manager.cleanup()
         if hasattr(self, "price_monitor"):
             await self.price_monitor.cleanup()
+
+    def _on_alphapulse_signal(self, signal):
+        """AlphaPulse信号回调"""
+        self.enhanced_logger.logger.info(
+            f"📡 AlphaPulse信号: {signal.signal_type.upper()} {signal.symbol} "
+            f"(置信度: {signal.confidence:.2f})"
+        )
 
     async def start(self) -> None:
         """启动机器人"""
@@ -1702,12 +1723,43 @@ class TradingBot(BaseComponent):
         start_time = time.time()
         total_signals = 0
         executed_trades = 0
+        alphapulse_signals = []
         self._tp_sl_managed_this_cycle = False  # 重置周期标志
         self._managed_positions.clear()  # 重置已管理仓位集合
 
         try:
             # 1. 获取和处理市场数据
             market_data = await self._process_market_data()
+
+            # 1.5. AlphaPulse信号处理（如果启用）
+            if hasattr(self, "alphapulse_engine") and self.alphapulse_engine:
+                from ..alphapulse.config import AlphaPulseConfig
+
+                config = AlphaPulseConfig.from_env()
+                if config.enabled:
+                    # 检查是否使用后备模式
+                    if config.fallback_cron_enabled:
+                        # 后备模式：手动触发AlphaPulse处理
+                        alphapulse_signal = await self.alphapulse_engine.process_cycle()
+                        if alphapulse_signal and alphapulse_signal.signal_type in [
+                            "buy",
+                            "sell",
+                        ]:
+                            alphapulse_signals.append(
+                                {
+                                    "type": alphapulse_signal.signal_type,
+                                    "symbol": alphapulse_signal.symbol,
+                                    "source": "alphapulse",
+                                    "confidence": alphapulse_signal.confidence,
+                                    "reason": alphapulse_signal.reasoning,
+                                    "execution_params": alphapulse_signal.execution_params,
+                                    "ai_result": alphapulse_signal.ai_result,
+                                }
+                            )
+                            self.enhanced_logger.logger.info(
+                                f"📡 AlphaPulse后备模式信号: {alphapulse_signal.signal_type.upper()} "
+                                f"{alphapulse_signal.symbol} (置信度: {alphapulse_signal.confidence:.2f})"
+                            )
 
             # 2. 生成交易信号
             signals, total_signals = await self._generate_trading_signals(
@@ -1748,6 +1800,9 @@ class TradingBot(BaseComponent):
                 return []
 
             # 按信号来源分组
+            alphapulse_signals = [
+                s for s in all_signals if s.get("source") == "alphapulse"
+            ]
             ai_signals = [s for s in all_signals if s.get("source") == "ai"]
             strategy_signals = [
                 s
@@ -1758,7 +1813,18 @@ class TradingBot(BaseComponent):
 
             self.enhanced_logger.logger.info("🔍 选择最终交易信号:")
 
-            # 优先选择AI信号（如果有）
+            # 优先选择AlphaPulse信号（最高优先级，因为它是技术指标+AI双重验证的结果）
+            if alphapulse_signals:
+                best_alphapulse_signal = max(
+                    alphapulse_signals, key=lambda x: x.get("confidence", 0)
+                )
+                self.enhanced_logger.logger.info(
+                    f"  ⭐ 选择AlphaPulse信号（置信度: {best_alphapulse_signal.get('confidence', 0):.2f}）"
+                    f" - {best_alphapulse_signal.get('type', 'UNKNOWN').upper()}"
+                )
+                return [best_alphapulse_signal]
+
+            # 其次选择AI信号
             if ai_signals:
                 # 如果有多个AI信号，选择置信度最高的
                 if len(ai_signals) > 1:
