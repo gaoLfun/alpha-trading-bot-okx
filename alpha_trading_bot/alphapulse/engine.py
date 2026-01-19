@@ -5,8 +5,10 @@ AlphaPulse 主引擎
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .config import AlphaPulseConfig
@@ -14,6 +16,7 @@ from .data_manager import DataManager
 from .market_monitor import MarketMonitor, SignalCheckResult
 from .signal_validator import SignalValidator, ValidationResult
 from .ai_analyzer import AIAnalyzer, AIAnalysisResult
+from .tiered_storage import TieredStorage, create_tiered_storage
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,17 @@ class AlphaPulseEngine:
         self.trade_executor = trade_executor
         self.ai_manager = ai_manager
         self.on_signal = on_signal
+
+        # 初始化日志（必须在使用logger之前）
+        self.logger = logging.getLogger(__name__)
+
+        # 自动创建数据目录
+        data_dir = Path("data/alphapulse")
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        # 初始化分层存储（自动创建数据库文件）
+        self.tiered_storage = create_tiered_storage(str(data_dir))
+        self.logger.info(f"分层存储已初始化: {data_dir}")
 
         # 初始化组件
         self.data_manager = DataManager(
