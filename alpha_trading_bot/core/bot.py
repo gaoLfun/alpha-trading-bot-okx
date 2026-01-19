@@ -1732,6 +1732,7 @@ class TradingBot(BaseComponent):
             market_data = await self._process_market_data()
 
             # 1.5. AlphaPulse信号处理（如果启用）
+            skip_rest_cycle = False  # 标记是否跳过后续分析
             if hasattr(self, "alphapulse_engine") and self.alphapulse_engine:
                 from ..alphapulse.config import AlphaPulseConfig
 
@@ -1741,10 +1742,17 @@ class TradingBot(BaseComponent):
                     if config.fallback_cron_enabled:
                         # 后备模式：手动触发AlphaPulse处理
                         alphapulse_signal = await self.alphapulse_engine.process_cycle()
-                        if alphapulse_signal and alphapulse_signal.signal_type in [
-                            "buy",
-                            "sell",
+
+                        # 如果AlphaPulse没有返回有效信号，跳过整个交易周期
+                        if not alphapulse_signal or alphapulse_signal.signal_type in [
+                            "hold",
+                            None,
                         ]:
+                            self.enhanced_logger.logger.info(
+                                f"💤 AlphaPulse未检测到有效信号 (hold/none)，跳过后续分析"
+                            )
+                            skip_rest_cycle = True
+                        elif alphapulse_signal.signal_type in ["buy", "sell"]:
                             alphapulse_signals.append(
                                 {
                                     "type": alphapulse_signal.signal_type,
@@ -1760,6 +1768,14 @@ class TradingBot(BaseComponent):
                                 f"📡 AlphaPulse后备模式信号: {alphapulse_signal.signal_type.upper()} "
                                 f"{alphapulse_signal.symbol} (置信度: {alphapulse_signal.confidence:.2f})"
                             )
+
+            # 如果跳过后续分析，直接进入周期完成阶段
+            if skip_rest_cycle:
+                self.enhanced_logger.logger.info(
+                    f"⏭️ 跳过第 {cycle_num} 轮交易周期（AlphaPulse过滤）"
+                )
+                await self._update_cycle_status(cycle_num, start_time, 0, 0)
+                return
 
             # 2. 生成交易信号
             signals, total_signals = await self._generate_trading_signals(
