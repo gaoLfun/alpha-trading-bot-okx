@@ -235,7 +235,7 @@ class DataManager:
         self, symbol: str, timeframe: str, ohlcv: List, is_completed: bool = True
     ):
         """
-        更新K线数据
+        更新K线数据 - 优化版：缩小锁范围，提高并发
 
         Args:
             symbol: 交易对
@@ -243,21 +243,24 @@ class DataManager:
             ohlcv: OHLCV数据列表
             is_completed: 是否完整的K线
         """
+        # 解析K线数据（无需锁）
+        ohlcv_data = OHLCVData.from_list(ohlcv)
+
+        # 确保存储初始化（无需锁，使用懒初始化）
+        if symbol not in self.ohlcv_storage:
+            await self.initialize_symbol(symbol, [timeframe])
+        if timeframe not in self.ohlcv_storage[symbol]:
+            async with self._lock:
+                if timeframe not in self.ohlcv_storage[symbol]:
+                    self.ohlcv_storage[symbol][timeframe] = deque(
+                        maxlen=self.max_ohlcv_bars
+                    )
+
+        # 获取存储引用（无需锁，引用是原子的）
+        storage = self.ohlcv_storage[symbol][timeframe]
+
+        # 更新热数据存储（需锁保护）
         async with self._lock:
-            # 确保存储已初始化
-            if symbol not in self.ohlcv_storage:
-                await self.initialize_symbol(symbol, [timeframe])
-            if timeframe not in self.ohlcv_storage[symbol]:
-                self.ohlcv_storage[symbol][timeframe] = deque(
-                    maxlen=self.max_ohlcv_bars
-                )
-
-            # 解析K线数据
-            ohlcv_data = OHLCVData.from_list(ohlcv)
-
-            # 添加到热数据存储（内存）
-            storage = self.ohlcv_storage[symbol][timeframe]
-
             # 检查是否重复
             if storage and storage[-1].timestamp == ohlcv_data.timestamp:
                 # 更新最后一个数据
@@ -265,23 +268,36 @@ class DataManager:
             else:
                 storage.append(ohlcv_data)
 
-            # 异步同步到温数据存储（SQLite持久化）
-            if self._tiered_storage is not None:
-                try:
-                    # 使用后台任务，避免阻塞当前流程
-                    asyncio.create_task(
-                        self._tiered_storage.store_warm_async(
-                            symbol, timeframe, ohlcv_data
-                        )
-                    )
-                    logger.debug(
-                        f"✅ [TieredStorage] {symbol} {timeframe} 数据已加入同步队列"
-                    )
-                except Exception as e:
-                    logger.warning(f"⚠️ [TieredStorage] 同步温数据失败: {e}")
+            # 更新价格区间缓存（快速操作，在锁内）
+            if symbol not in self.price_range_cache:
+                self.price_range_cache[symbol] = {
+                    "high_24h": ohlcv_data.close,
+                    "low_24h": ohlcv_data.close,
+                    "high_7d": ohlcv_data.close,
+                    "low_7d": ohlcv_data.close,
+                    "last_update": datetime.now(),
+                }
+            else:
+                cache = self.price_range_cache[symbol]
+                price = ohlcv_data.close
+                cache["last_update"] = datetime.now()
+                if price > cache["high_24h"]:
+                    cache["high_24h"] = price
+                if price < cache["low_24h"]:
+                    cache["low_24h"] = price
+                if price > cache["high_7d"]:
+                    cache["high_7d"] = price
+                if price < cache["low_7d"]:
+                    cache["low_7d"] = price
 
-            # 更新价格区间缓存
-            await self._update_price_range(symbol, ohlcv_data.close)
+        # 异步同步到温数据存储（无需锁，后台执行）
+        if self._tiered_storage is not None:
+            try:
+                asyncio.create_task(
+                    self._tiered_storage.store_warm_async(symbol, timeframe, ohlcv_data)
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ [TieredStorage] 同步温数据失败: {e}")
 
     async def _update_price_range(self, symbol: str, price: float):
         """更新价格区间缓存"""
