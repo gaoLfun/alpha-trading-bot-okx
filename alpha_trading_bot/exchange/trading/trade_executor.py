@@ -9,7 +9,14 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from ...core.base import BaseComponent, BaseConfig
-from ..models import TradeResult, OrderResult, TradeSide, TPSLRequest, PositionInfo
+from ..models import (
+    TradeResult,
+    OrderResult,
+    TradeSide,
+    TPSLRequest,
+    PositionInfo,
+    OrderStatus,
+)
 from .dynamic_stop_loss import DynamicStopLoss
 from .dynamic_position_sizing import DynamicPositionSizing
 from .transaction_cost_analyzer import TransactionCostAnalyzer
@@ -458,6 +465,57 @@ class TradeExecutor(BaseComponent):
                     success=False, error_message=f"余额检查异常: {str(e)}"
                 )
 
+            # 🆕 检查是否有未完成的订单（防止重复下单）
+            pending_orders = self.order_manager.get_active_orders(symbol)
+            pending_limit_orders = [
+                o
+                for o in pending_orders
+                if o.status in [OrderStatus.OPEN, OrderStatus.PENDING]
+            ]
+            if pending_limit_orders:
+                logger.warning(
+                    f"发现 {len(pending_limit_orders)} 个未完成限价订单，跳过新建订单: {symbol}"
+                )
+                # 检查这些订单是否已成交
+                for order in pending_limit_orders:
+                    updated_order = await self.exchange_client.fetch_order(
+                        order.order_id, symbol
+                    )
+                    if (
+                        updated_order.success
+                        and updated_order.status == OrderStatus.CLOSED
+                    ):
+                        logger.info(f"订单 {order.order_id} 已成交，使用已有成交结果")
+                        return TradeResult(
+                            success=True,
+                            order_id=updated_order.order_id,
+                            filled_amount=updated_order.filled_amount,
+                            average_price=updated_order.average_price,
+                            fee=updated_order.fee or 0,
+                        )
+                return TradeResult(
+                    success=False,
+                    error_message=f"存在 {len(pending_limit_orders)} 个未完成订单",
+                )
+                # 检查这些订单是否已成交
+                for order in pending_limit_orders:
+                    updated_order = await self.exchange_client.fetch_order(
+                        order.order_id, symbol
+                    )
+                    if updated_order.success and updated_order.status == "closed":
+                        logger.info(f"订单 {order.order_id} 已成交，使用已有成交结果")
+                        return TradeResult(
+                            success=True,
+                            order_id=updated_order.order_id,
+                            filled_amount=updated_order.filled_amount,
+                            average_price=updated_order.average_price,
+                            fee=updated_order.fee or 0,
+                        )
+                return TradeResult(
+                    success=False,
+                    error_message=f"存在 {len(pending_limit_orders)} 个未完成订单",
+                )
+
             # 2. 创建主订单 - 集成成本分析
             expected_price = current_price  # 记录预期价格
             order_start_time = time.time()
@@ -714,13 +772,17 @@ class TradeExecutor(BaseComponent):
                 # 更新订单状态
                 updated_order = await self.exchange_client.fetch_order(order_id, symbol)
 
-                if updated_order.success:
-                    if updated_order.status == "closed":
+                if updated_order.success and updated_order.status:
+                    if updated_order.status == OrderStatus.CLOSED:
                         logger.info(f"订单已成交: {order_id}")
                         return updated_order
-                    elif updated_order.status in ["canceled", "rejected", "expired"]:
+                    elif updated_order.status in [
+                        OrderStatus.CANCELED,
+                        OrderStatus.REJECTED,
+                        OrderStatus.EXPIRED,
+                    ]:
                         logger.warning(
-                            f"订单已终止: {order_id} - {updated_order.status}"
+                            f"订单已终止: {order_id} - {updated_order.status.value}"
                         )
                         return None
 
@@ -731,10 +793,12 @@ class TradeExecutor(BaseComponent):
             logger.warning(f"订单成交超时: {order_id}，检查持仓状态...")
             try:
                 # 检查持仓状态，如果有持仓说明订单可能已成交
-                current_position = await self.position_manager.update_position(symbol)
-                if current_position and current_position.size > 0:
+                current_position = await self.position_manager.update_position(
+                    self.exchange_client, symbol
+                )
+                if current_position and current_position.amount > 0:
                     logger.info(
-                        f"发现持仓，订单可能已成交但未及时更新: {symbol} {current_position.size}"
+                        f"发现持仓，订单可能已成交但未及时更新: {symbol} {current_position.amount}"
                     )
                     # 构造一个模拟的OrderResult
                     return OrderResult(
@@ -742,11 +806,11 @@ class TradeExecutor(BaseComponent):
                         order_id=order_id,
                         symbol=symbol,
                         side=order_result.side,
-                        amount=current_position.size,
-                        filled_amount=current_position.size,
-                        average_price=current_position.avg_price,
+                        amount=current_position.amount,
+                        filled_amount=current_position.amount,
+                        average_price=current_position.entry_price,
                         fee=0.0,  # 无法获取，设为0
-                        status="closed",
+                        status=OrderStatus.CLOSED,
                     )
                 else:
                     logger.warning(f"订单超时且无持仓，确认订单失败: {order_id}")
