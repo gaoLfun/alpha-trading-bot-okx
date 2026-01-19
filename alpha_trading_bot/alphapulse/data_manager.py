@@ -1,10 +1,15 @@
 """
 AlphaPulse 数据管理器
 高效存储和查询K线及技术指标历史数据
+
+已集成 TieredStorage 分层存储系统:
+- 热数据 (Hot): 内存存储，实时监控，短期趋势
+- 温数据 (Warm): SQLite数据库，中期分析，周级数据
+- 冷数据 (Cold): 降采样数据库，长期趋势，月级数据
 """
 
-import logging
 import asyncio
+import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -62,6 +67,18 @@ class OHLCVData:
             close=float(data[4]),
             volume=float(data[5]),
         )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "timestamp": self.timestamp,
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+            "datetime": self.datetime.isoformat() if self.datetime else None,
+        }
 
 
 @dataclass
