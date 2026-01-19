@@ -218,12 +218,18 @@ class MarketMonitor:
             asyncio.create_task(self.data_manager.initialize_symbol(symbol))
 
     async def start(self):
-        """启动监控"""
-        if self._running:
-            logger.warning("MarketMonitor 已在运行")
+        """启动监控 - 增强版：防止重复启动"""
+        # 双重检查防止重复启动
+        if (
+            self._running
+            and self._monitor_task is not None
+            and not self._monitor_task.done()
+        ):
+            logger.warning("MarketMonitor 已在运行，跳过重复启动")
             return
 
         self._running = True
+
         logger.info(
             f"MarketMonitor 已启动, 监控间隔: {self.config.monitor_interval}秒, "
             f"交易对: {self.config.symbols}"

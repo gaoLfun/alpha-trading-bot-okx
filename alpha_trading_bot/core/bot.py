@@ -147,15 +147,26 @@ class TradingBot(BaseComponent):
 
             # 初始化AlphaPulse引擎（代号：阿尔法脉冲）
             from ..alphapulse import AlphaPulseEngine
+            from ..alphapulse.config import AlphaPulseConfig
+
+            # 获取AlphaPulse配置
+            alphapulse_config = AlphaPulseConfig.from_env()
 
             self.alphapulse_engine = AlphaPulseEngine(
                 exchange_client=self.trading_engine.exchange_client,
-                config=None,  # 从环境变量加载
+                config=alphapulse_config,
                 trade_executor=self.trading_engine.trade_executor,
                 ai_manager=self.ai_manager,
                 on_signal=self._on_alphapulse_signal,
             )
+
+            # 启动实时监控（主要模式）
             await self.alphapulse_engine.start()
+            self.enhanced_logger.logger.info("✅ AlphaPulse 实时监控已启动")
+
+            # 初始化后备模式状态
+            self._alphapulse_fallback_enabled = alphapulse_config.fallback_cron_enabled
+            self._alphapulse_last_success_time = {}  # 每个交易对的最后成功时间
 
             self._initialized = True
             self.enhanced_logger.logger.info("交易机器人初始化成功")
@@ -284,11 +295,16 @@ class TradingBot(BaseComponent):
             await self.price_monitor.cleanup()
 
     def _on_alphapulse_signal(self, signal):
-        """AlphaPulse信号回调"""
+        """AlphaPulse信号回调 - 实时监控产生信号时更新成功时间"""
         self.enhanced_logger.logger.info(
             f"📡 AlphaPulse信号: {signal.signal_type.upper()} {signal.symbol} "
             f"(置信度: {signal.confidence:.2f})"
         )
+        # 更新最后成功时间（供后备模式判断是否需要触发）
+        if hasattr(self, "_alphapulse_last_success_time"):
+            self._alphapulse_last_success_time[signal.symbol] = (
+                asyncio.get_event_loop().time()
+            )
 
     async def start(self) -> None:
         """启动机器人"""
@@ -1732,32 +1748,70 @@ class TradingBot(BaseComponent):
             market_data = await self._process_market_data()
 
             # 1.5. AlphaPulse信号处理（如果启用）
+            # 逻辑：实时监控持续运行，后备模式仅在异常时触发
             skip_rest_cycle = False  # 标记是否跳过后续分析
+            use_fallback = False  # 标记是否使用后备模式
             if hasattr(self, "alphapulse_engine") and self.alphapulse_engine:
                 from ..alphapulse.config import AlphaPulseConfig
 
                 config = AlphaPulseConfig.from_env()
                 if config.enabled:
-                    # 检查是否使用后备模式
-                    if config.fallback_cron_enabled:
-                        # 后备模式：手动触发AlphaPulse处理
+                    # 检查实时监控是否正常运行
+                    now = asyncio.get_event_loop().time()
+                    monitor = self.alphapulse_engine.market_monitor
+                    monitor_running = (
+                        monitor._running
+                        and monitor._monitor_task is not None
+                        and not monitor._monitor_task.done()
+                    )
+
+                    if monitor_running:
+                        # 实时监控正常运行，后备模式作为备用
+                        if config.fallback_cron_enabled:
+                            # 检查是否需要触发后备（实时监控超时未产生信号）
+                            target_symbol = (
+                                config.symbols[0] if config.symbols else None
+                            )
+                            last_success = self._alphapulse_last_success_time.get(
+                                target_symbol, 0
+                            )
+                            fallback_threshold = 120  # 2分钟无信号则触发后备
+
+                            if now - last_success > fallback_threshold:
+                                # 实时监控超时，触发后备模式
+                                self.enhanced_logger.logger.info(
+                                    f"⚠️ AlphaPulse实时监控超过{fallback_threshold}秒无信号，触发后备模式"
+                                )
+                                use_fallback = True
+                            else:
+                                self.enhanced_logger.logger.info(
+                                    f"✅ AlphaPulse实时监控运行中，跳过后备模式"
+                                )
+                    else:
+                        # 实时监控未运行，触发后备模式
+                        self.enhanced_logger.logger.warning(
+                            f"⚠️ AlphaPulse实时监控未运行，触发后备模式"
+                        )
+                        use_fallback = True
+
+                    # 执行后备模式（仅在需要时）
+                    if use_fallback:
                         alphapulse_signal = await self.alphapulse_engine.process_cycle()
 
-                        # 如果AlphaPulse没有返回有效信号，跳过整个交易周期
-                        if not alphapulse_signal or alphapulse_signal.signal_type in [
-                            "hold",
-                            None,
+                        if alphapulse_signal and alphapulse_signal.signal_type in [
+                            "buy",
+                            "sell",
                         ]:
-                            self.enhanced_logger.logger.info(
-                                f"💤 AlphaPulse未检测到有效信号 (hold/none)，跳过后续分析"
-                            )
-                            skip_rest_cycle = True
-                        elif alphapulse_signal.signal_type in ["buy", "sell"]:
+                            # 更新最后成功时间
+                            self._alphapulse_last_success_time[
+                                alphapulse_signal.symbol
+                            ] = now
+
                             alphapulse_signals.append(
                                 {
                                     "type": alphapulse_signal.signal_type,
                                     "symbol": alphapulse_signal.symbol,
-                                    "source": "alphapulse",
+                                    "source": "alphapulse_fallback",
                                     "confidence": alphapulse_signal.confidence,
                                     "reason": alphapulse_signal.reasoning,
                                     "execution_params": alphapulse_signal.execution_params,
@@ -1767,6 +1821,10 @@ class TradingBot(BaseComponent):
                             self.enhanced_logger.logger.info(
                                 f"📡 AlphaPulse后备模式信号: {alphapulse_signal.signal_type.upper()} "
                                 f"{alphapulse_signal.symbol} (置信度: {alphapulse_signal.confidence:.2f})"
+                            )
+                        else:
+                            self.enhanced_logger.logger.info(
+                                f"💤 AlphaPulse后备模式未检测到有效信号"
                             )
 
             # 如果跳过后续分析，直接进入周期完成阶段
