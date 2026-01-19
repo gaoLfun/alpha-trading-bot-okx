@@ -166,7 +166,7 @@ class TradingBot(BaseComponent):
 
             # 初始化后备模式状态
             self._alphapulse_fallback_enabled = alphapulse_config.fallback_cron_enabled
-            self._alphapulse_last_success_time = {}  # 每个交易对的最后成功时间
+            self._alphapulse_last_check_time = {}  # 每个交易对的最后检查时间
 
             self._initialized = True
             self.enhanced_logger.logger.info("交易机器人初始化成功")
@@ -295,14 +295,14 @@ class TradingBot(BaseComponent):
             await self.price_monitor.cleanup()
 
     def _on_alphapulse_signal(self, signal):
-        """AlphaPulse信号回调 - 实时监控产生信号时更新成功时间"""
+        """AlphaPulse信号回调 - 实时监控产生信号时更新时间戳"""
         self.enhanced_logger.logger.info(
             f"📡 AlphaPulse信号: {signal.signal_type.upper()} {signal.symbol} "
             f"(置信度: {signal.confidence:.2f})"
         )
-        # 更新最后成功时间（供后备模式判断是否需要触发）
-        if hasattr(self, "_alphapulse_last_success_time"):
-            self._alphapulse_last_success_time[signal.symbol] = (
+        # 更新时间戳（无论是buy/sell还是hold，都视为成功完成一次检查）
+        if hasattr(self, "_alphapulse_last_check_time"):
+            self._alphapulse_last_check_time[signal.symbol] = (
                 asyncio.get_event_loop().time()
             )
 
@@ -1772,15 +1772,15 @@ class TradingBot(BaseComponent):
                             target_symbol = (
                                 config.symbols[0] if config.symbols else None
                             )
-                            last_success = self._alphapulse_last_success_time.get(
+                            last_check = self._alphapulse_last_check_time.get(
                                 target_symbol, 0
                             )
-                            fallback_threshold = 120  # 2分钟无信号则触发后备
+                            fallback_threshold = 180  # 3分钟无任何检查则触发后备
 
-                            if now - last_success > fallback_threshold:
+                            if now - last_check > fallback_threshold:
                                 # 实时监控超时，触发后备模式
                                 self.enhanced_logger.logger.info(
-                                    f"⚠️ AlphaPulse实时监控超过{fallback_threshold}秒无信号，触发后备模式"
+                                    f"⚠️ AlphaPulse实时监控超过{fallback_threshold}秒无检查，触发后备模式"
                                 )
                                 use_fallback = True
                             else:
@@ -1802,8 +1802,8 @@ class TradingBot(BaseComponent):
                             "buy",
                             "sell",
                         ]:
-                            # 更新最后成功时间
-                            self._alphapulse_last_success_time[
+                            # 更新最后检查时间
+                            self._alphapulse_last_check_time[
                                 alphapulse_signal.symbol
                             ] = now
 
