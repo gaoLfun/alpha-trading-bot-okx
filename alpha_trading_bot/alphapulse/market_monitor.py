@@ -362,10 +362,9 @@ class MarketMonitor:
             # 获取参数
             params = self.config.get_indicator_params()
 
-            # 计算ATR
-            high_low_data = list(zip(highs, lows))
+            # 计算ATR (需要 high, low, close 分开的列表)
             atr_list = self.tech_indicators.calculate_atr(
-                high_low_data, period=params["atr_period"]
+                highs, lows, closes, period=params["atr_period"]
             )
             atr = atr_list[-1] if atr_list else 0
             atr_percent = (atr / current_price * 100) if current_price > 0 else 0
