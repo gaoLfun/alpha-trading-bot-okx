@@ -163,27 +163,131 @@ class AlphaPulseEngine:
         await self.data_manager.cleanup()
         self.logger.info("AlphaPulse引擎已停止")
 
-    async def process_cycle(self, symbol: str = None) -> Optional[TradingSignal]:
+    async def process_cycle(
+        self, symbol: str = None, timeout: float = 30.0
+    ) -> Optional[TradingSignal]:
         """
         处理一个交易周期
 
         Args:
             symbol: 交易对（可选，默认使用配置的的第一个交易对）
+            timeout: 超时时间（秒）
 
         Returns:
             交易信号
         """
+        import asyncio
+
         target_symbol = symbol or self.config.symbols[0]
 
         self.logger.info(f"🔄 AlphaPulse 后备模式处理: {target_symbol}")
 
         try:
-            # 1. 获取信号检查结果
-            signal_result = await self.market_monitor.manual_check(target_symbol)
+            # 使用超时包装整个处理过程
+            signal_result = await asyncio.wait_for(
+                self.market_monitor.manual_check(target_symbol), timeout=timeout
+            )
+            self.logger.info(
+                f"📊 manual_check 完成, 信号结果: {'有信号' if signal_result else '无信号'}"
+            )
 
             if not signal_result:
                 self.logger.info(f"💤 {target_symbol} 无信号 (数据不足)")
                 return None
+
+            if not signal_result.should_trade:
+                self.logger.info(
+                    f"💤 {target_symbol} 不满足交易条件: {signal_result.message}"
+                )
+                self.logger.info(
+                    f"   分数: BUY={signal_result.buy_score:.2f}, SELL={signal_result.sell_score:.2f}"
+                )
+                return None
+
+            self.logger.info(
+                f"🎯 {target_symbol} 检测到信号: {signal_result.signal_type.upper()}"
+            )
+            self.logger.info(f"   置信度: {signal_result.confidence:.2f}")
+            self.logger.info(f"   触发因素: {', '.join(signal_result.triggers)}")
+
+            # 2. 验证信号
+            self.logger.info(f"🔍 正在验证信号...")
+            market_summary = await asyncio.wait_for(
+                self.data_manager.get_market_summary(target_symbol), timeout=timeout
+            )
+
+            validation = await asyncio.wait_for(
+                self.signal_validator.validate(
+                    target_symbol, signal_result, market_summary
+                ),
+                timeout=timeout,
+            )
+
+            if not validation.passed:
+                self.logger.info(
+                    f"❌ {target_symbol} 信号验证未通过: {validation.final_message}"
+                )
+                self.logger.info(
+                    f"   详细: RSI={validation.rsi_ok}, 趋势={validation.trend_ok}, 波动率={validation.volatility_ok}"
+                )
+                return None
+
+            self.logger.info(f"✅ {target_symbol} 信号验证通过!")
+
+            # 3. 决定是否需要AI
+            need_ai = self.signal_validator.should_use_ai(validation)
+            ai_result = None
+
+            if need_ai:
+                self.logger.info(f"🤖 正在调用AI验证信号...")
+                ai_result = await asyncio.wait_for(
+                    self.ai_analyzer.analyze(
+                        target_symbol, signal_result.indicator_result, validation
+                    ),
+                    timeout=60.0,  # AI可能需要更长时间
+                )
+
+                if ai_result:
+                    self.logger.info(
+                        f"🤖 AI分析完成: signal={ai_result.signal}, confidence={ai_result.confidence:.2f}"
+                    )
+
+                    should_exec, reason = self.ai_analyzer.should_execute(
+                        validation, ai_result
+                    )
+                    if not should_exec:
+                        self.logger.info(f"❌ AI阻止执行: {reason}")
+                        return None
+
+            # 4. 生成交易信号
+            trading_signal = await self._create_trading_signal(
+                target_symbol, signal_result, validation, ai_result, market_summary
+            )
+
+            # 5. 保存信号
+            self._signal_history.append(trading_signal)
+            self._last_signal_time[target_symbol] = datetime.now()
+
+            self.logger.info(f"🚀 生成最终信号: {trading_signal.signal_type.upper()}")
+            self.logger.info(f"   置信度: {trading_signal.confidence:.2f}")
+            self.logger.info(f"   推理: {trading_signal.reasoning[:100]}...")
+
+            # 6. 触发回调
+            if self.on_signal:
+                self.on_signal(trading_signal)
+
+            # 7. 如果有交易执行器，执行交易
+            if self.trade_executor and trading_signal.signal_type in ["buy", "sell"]:
+                await self._execute_trade(trading_signal)
+
+            return trading_signal
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"❌ {target_symbol} 处理超时 ({timeout}秒)")
+            return None
+        except Exception as e:
+            self.logger.error(f"❌ {target_symbol} 处理异常: {e}", exc_info=True)
+            return None
 
             if not signal_result.should_trade:
                 self.logger.info(

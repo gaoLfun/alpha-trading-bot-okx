@@ -632,30 +632,49 @@ class MarketMonitor:
 
     async def manual_check(self, symbol: str) -> Optional[SignalCheckResult]:
         """手动检查信号（用于后备模式调用）"""
+        self.logger.info(f"🔍 [{symbol}] 开始检查信号...")
+
         # 获取最新K线数据
         ohlcv = await self.data_manager.get_ohlcv(symbol, "15m", limit=100)
+        self.logger.info(f"📊 [{symbol}] 获取到 {len(ohlcv) if ohlcv else 0} 根K线数据")
 
         if not ohlcv:
+            self.logger.info(f"📥 [{symbol}] 本地无数据，从交易所获取...")
             # 需要从交易所获取
             ohlcv = await self.exchange_client.fetch_ohlcv(symbol, "15m", limit=100)
             if ohlcv:
+                self.logger.info(f"📥 [{symbol}] 交易所返回 {len(ohlcv)} 根K线")
                 for bar in ohlcv:
                     await self.data_manager.update_ohlcv(symbol, "15m", bar)
-
-        if not ohlcv:
-            return None
+            else:
+                self.logger.warning(f"❌ [{symbol}] 无法获取K线数据")
+                return None
 
         # 计算指标
+        self.logger.info(f"🔢 [{symbol}] 正在计算技术指标...")
         indicator_result = await self._calculate_indicators(symbol, ohlcv)
 
         if not indicator_result:
+            self.logger.warning(f"❌ [{symbol}] 指标计算失败")
             return None
+
+        self.logger.info(
+            f"✅ [{symbol}] 指标计算完成: RSI={indicator_result.rsi:.1f}, BB={indicator_result.bb_position:.1f}%, ADX={indicator_result.adx:.1f}"
+        )
 
         # 更新指标存储
         snapshot = indicator_result.to_indicator_snapshot()
         await self.data_manager.update_indicator(symbol, snapshot)
 
         # 检查信号
+        self.logger.info(f"🎯 [{symbol}] 正在检查交易信号...")
         result = await self._check_signals(symbol, indicator_result)
+
+        if result:
+            self.logger.info(
+                f"✅ [{symbol}] 信号检查完成: should_trade={result.should_trade}, signal={result.signal_type}"
+            )
+        else:
+            self.logger.info(f"⚠️ [{symbol}] 信号检查返回None")
 
         return result
