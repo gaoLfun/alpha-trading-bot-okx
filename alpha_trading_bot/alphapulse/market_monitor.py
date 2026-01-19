@@ -369,24 +369,32 @@ class MarketMonitor:
             atr = atr_list[-1] if atr_list else 0
             atr_percent = (atr / current_price * 100) if current_price > 0 else 0
 
-            # 计算RSI
-            rsi = self.tech_indicators.calculate_rsi(
+            # 计算RSI (返回列表，取最后一个值)
+            rsi_list = self.tech_indicators.calculate_rsi(
                 closes, period=params["rsi_period"]
             )
+            rsi = rsi_list[-1] if rsi_list else 50.0
 
-            # 计算MACD
-            macd, macd_signal, macd_hist = self.tech_indicators.calculate_macd(
-                closes,
-                fast_period=params["macd_fast"],
-                slow_period=params["macd_slow"],
-                signal_period=params["macd_signal"],
+            # 计算MACD (返回三个列表，取最后一个值)
+            macd_list, macd_signal_list, macd_hist_list = (
+                self.tech_indicators.calculate_macd(
+                    closes,
+                    fast_period=params["macd_fast"],
+                    slow_period=params["macd_slow"],
+                    signal_period=params["macd_signal"],
+                )
             )
+            macd = macd_list[-1] if macd_list else 0.0
+            macd_signal = macd_signal_list[-1] if macd_signal_list else 0.0
+            macd_hist = macd_hist_list[-1] if macd_hist_list else 0.0
 
             # 计算ADX (返回列表，取最后一个值)
             adx_list = self.tech_indicators.calculate_adx(
                 highs, lows, closes, period=params["adx_period"]
             )
-            adx = adx_list[-1] if adx_list else 0
+            adx = adx_list[-1] if adx_list else 0.0
+            plus_di = 0.0
+            minus_di = 0.0
 
             # 计算布林带 (返回元组: (上轨, 中轨, 下轨))
             bb_upper_list, bb_middle_list, bb_lower_list = (
