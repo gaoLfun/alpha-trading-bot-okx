@@ -522,26 +522,38 @@ class MarketMonitor:
             confidence = 0.0
             message = ""
 
-            if buy_score >= self.config.buy_threshold and sell_score < 0.3:
+            # 基于分数比较的判断逻辑
+            if buy_score >= self.config.buy_threshold and buy_score > sell_score:
+                # BUY 分数达标且高于 SELL 分数
                 signal_type = "buy"
                 should_trade = True
                 confidence = buy_score
                 message = f"BUY信号触发 (分数: {buy_score:.2f}), 触发因素: {', '.join(buy_triggers)}"
-
-            elif sell_score >= self.config.sell_threshold and buy_score < 0.3:
+            elif sell_score >= self.config.sell_threshold and sell_score > buy_score:
+                # SELL 分数达标且高于 BUY 分数
                 signal_type = "sell"
                 should_trade = True
                 confidence = sell_score
                 message = f"SELL信号触发 (分数: {sell_score:.2f}), 触发因素: {', '.join(sell_triggers)}"
-
             else:
                 # 不满足交易条件
-                if abs(buy_score - sell_score) < 0.1:
-                    message = f"市场震荡, 买卖力量均衡 (BUY: {buy_score:.2f}, SELL: {sell_score:.2f})"
+                if buy_score > sell_score:
+                    higher = buy_score
+                    higher_type = "BUY"
+                    lower = sell_score
+                    lower_type = "SELL"
                 else:
-                    direction = "BUY" if buy_score > sell_score else "SELL"
-                    higher = max(buy_score, sell_score)
-                    message = f"{direction}分数不足 ({higher:.2f} < {self.config.buy_threshold})"
+                    higher = sell_score
+                    higher_type = "SELL"
+                    lower = buy_score
+                    lower_type = "BUY"
+
+                if higher < self.config.buy_threshold:
+                    # 双方分数都不够
+                    message = f"{higher_type}分数不足 ({higher:.2f} < {self.config.buy_threshold}, {lower_type}: {lower:.2f})"
+                else:
+                    # 分数够了但对方分数也够高（分数接近）
+                    message = f"市场震荡, 双方力量均衡 ({higher_type}: {higher:.2f}, {lower_type}: {lower:.2f})"
 
             if should_trade:
                 self._last_signal_time[symbol] = now
