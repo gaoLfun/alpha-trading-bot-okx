@@ -347,6 +347,18 @@ class TradingBot(BaseComponent):
                 f"启动监控任务失败: {e}，继续运行主程序"
             )
 
+        # 初始化 AlphaPulse 预热期（在程序启动时设置）
+        from ..alphapulse.config import AlphaPulseConfig
+
+        alphapulse_config = AlphaPulseConfig.from_env()
+        if hasattr(self, "_alphapulse_primary_mode") and self._alphapulse_primary_mode:
+            self._alphapulse_warmup_end = (
+                asyncio.get_event_loop().time() + alphapulse_config.warmup_minutes * 60
+            )
+            self.enhanced_logger.logger.info(
+                f"🔄 AlphaPulse 预热期启动（{alphapulse_config.warmup_minutes}分钟），期间不触发主流程"
+            )
+
         # AlphaPulse独立运行模式
         if getattr(self.config, "alphapulse_only_mode", False):
             self.enhanced_logger.logger.info(
@@ -1831,18 +1843,9 @@ class TradingBot(BaseComponent):
 
         config = AlphaPulseConfig.from_env()
         warmup_end_time = getattr(self, "_alphapulse_warmup_end", None)
-        if warmup_end_time is None:
-            # 首次运行，初始化预热期结束时间
-            warmup_end_time = (
-                asyncio.get_event_loop().time() + config.warmup_minutes * 60
-            )
-            self._alphapulse_warmup_end = warmup_end_time
-            self.enhanced_logger.logger.info(
-                f"🔄 AlphaPulse 预热期启动（{config.warmup_minutes}分钟），期间不触发主流程"
-            )
 
         current_time = asyncio.get_event_loop().time()
-        in_warmup = current_time < warmup_end_time
+        in_warmup = warmup_end_time is not None and current_time < warmup_end_time
 
         try:
             # 1. 获取和处理市场数据
