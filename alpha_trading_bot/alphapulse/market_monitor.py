@@ -146,50 +146,50 @@ class MarketMonitor:
     - 存储历史数据
     """
 
-    # BUY信号触发条件及权重（适配中性偏弱市场）
-    BUY_SIGNALS = {
-        # RSI: 中性偏低即可触发，不再要求超卖
-        "rsi_weak": {"threshold": 55, "weight": 0.15, "check": lambda v: v < 55},
-        # 布林带: 价格在相对高位区域（>75%）触发买入（低位买入高位卖出逻辑反转）
-        "bb_upper_zone": {"threshold": 75, "weight": 0.15, "check": lambda v: v > 75},
-        # MACD: 金叉转正
-        "macd_crossover_up": {"weight": 0.15, "check": lambda v: v > 0},
-        # ADX: 降低阈值到20（实际平均23.6）
-        "adx_weak_up": {"threshold": 20, "weight": 0.10, "check": lambda v: v > 20},
-        # 24h位置: 放宽到25%（实际平均22.2%）
-        "price_low_24h": {"threshold": 25, "weight": 0.15, "check": lambda v: v < 25},
-        # 7d位置: 放宽到30%
-        "price_low_7d": {"threshold": 30, "weight": 0.10, "check": lambda v: v < 30},
-        # 波动率: 降低到0.2%（实际0.21%）
-        "volatility_low": {
-            "threshold": 0.2,
+    # 单一分数交易信号配置（范围: -1.0 到 1.0）
+    # 正值=偏多, 负值=偏空, 0=中性
+    # BUY: score >= 0.3, SELL: score <= -0.3, HOLD: -0.3 < score < 0.3
+    TRADE_SIGNALS = {
+        # RSI: (RSI - 50) / 50 → -1 (极弱) 到 1 (极强)
+        "rsi": {
+            "weight": 0.20,
+            "factor": lambda rsi: (rsi - 50) / 50,  # -1 到 1
+        },
+        # 布林带位置: (BB - 50) / 50 → -1 (底部) 到 1 (顶部)
+        "bb_position": {
+            "weight": 0.15,
+            "factor": lambda bb: (bb - 50) / 50,  # -1 到 1
+        },
+        # MACD柱状图: 归一化到 -1 到 1
+        "macd": {
+            "weight": 0.15,
+            "factor": lambda macd: max(-1, min(1, macd / 50)),  # 假设最大50
+        },
+        # ADX趋势强度: +ve 放大信号强度
+        "adx": {
             "weight": 0.10,
-            "check": lambda v: v > 0.2,
+            "factor": lambda adx: min(1, (adx - 20) / 30),  # 20以下=0, 50以上=1
+        },
+        # 24h价格位置: (Pos - 50) / 50 → -1 到 1
+        "price_position_24h": {
+            "weight": 0.20,
+            "factor": lambda pos: (pos - 50) / 50,  # -1 到 1
+        },
+        # 7d价格位置: (Pos - 50) / 50 → -1 到 1
+        "price_position_7d": {
+            "weight": 0.10,
+            "factor": lambda pos: (pos - 50) / 50,  # -1 到 1
+        },
+        # 波动率: 波动率越高，信号越可靠
+        "volatility": {
+            "weight": 0.10,
+            "factor": lambda atr: min(1, atr / 1.0),  # 1%以上=1
         },
     }
 
-    # SELL信号触发条件及权重（适配中性偏强市场）
-    SELL_SIGNALS = {
-        # RSI: 中性偏高即可触发，不再要求超买
-        "rsi_strong": {"threshold": 50, "weight": 0.15, "check": lambda v: v > 50},
-        # 布林带: 价格在相对高位区域（>90%）或高位区间（>75%）
-        "bb_top": {"threshold": 90, "weight": 0.15, "check": lambda v: v > 90},
-        "bb_upper_zone": {"threshold": 75, "weight": 0.10, "check": lambda v: v > 75},
-        # MACD: 死叉转负
-        "macd_crossover_down": {"weight": 0.15, "check": lambda v: v < 0},
-        # ADX: 降低阈值到20
-        "adx_weak_down": {"threshold": 20, "weight": 0.10, "check": lambda v: v > 20},
-        # 24h位置: 放宽到75%（实际平均22%，需要高位）
-        "price_high_24h": {"threshold": 75, "weight": 0.15, "check": lambda v: v > 75},
-        # 7d位置: 放宽到70%
-        "price_high_7d": {"threshold": 70, "weight": 0.10, "check": lambda v: v > 70},
-        # 波动率: 降低到0.2%
-        "volatility_low": {
-            "threshold": 0.2,
-            "weight": 0.10,
-            "check": lambda v: v > 0.2,
-        },
-    }
+    # 信号阈值配置
+    BUY_THRESHOLD = 0.30  # 分数 >= 0.3 → BUY
+    SELL_THRESHOLD = -0.30  # 分数 <= -0.3 → SELL
 
     def __init__(
         self,
@@ -508,56 +508,44 @@ class MarketMonitor:
             if now - last_signal < self._cooldown_seconds:
                 return None
 
-            # 计算分数
-            buy_score, buy_triggers = self._calculate_score(
-                result, self.BUY_SIGNALS, "buy"
-            )
-            sell_score, sell_triggers = self._calculate_score(
-                result, self.SELL_SIGNALS, "sell"
-            )
+            # 计算单一交易分数
+            trade_score, triggers, details = self._calculate_trade_score(result)
+
+            # 转换为 0-1 范围的置信度用于返回
+            # score 范围 -1 到 1，转换为 0 到 1
+            confidence = (trade_score + 1) / 2
 
             # 确定信号类型
             signal_type = "hold"
             should_trade = False
-            confidence = 0.0
             message = ""
 
-            # 基于分数比较的判断逻辑
-            if buy_score >= self.config.buy_threshold and buy_score > sell_score:
-                # BUY 分数达标且高于 SELL 分数
+            if trade_score >= self.BUY_THRESHOLD:
+                # 分数 >= 0.3 → BUY
                 signal_type = "buy"
                 should_trade = True
-                confidence = buy_score
-                message = f"BUY信号触发 (分数: {buy_score:.2f}), 触发因素: {', '.join(buy_triggers)}"
-            elif sell_score >= self.config.sell_threshold and sell_score > buy_score:
-                # SELL 分数达标且高于 BUY 分数
+                message = f"BUY信号触发 (分数: {trade_score:.2f}), 触发因素: {', '.join(triggers)}"
+            elif trade_score <= self.SELL_THRESHOLD:
+                # 分数 <= -0.3 → SELL
                 signal_type = "sell"
                 should_trade = True
-                confidence = sell_score
-                message = f"SELL信号触发 (分数: {sell_score:.2f}), 触发因素: {', '.join(sell_triggers)}"
+                message = f"SELL信号触发 (分数: {trade_score:.2f}), 触发因素: {', '.join(triggers)}"
             else:
-                # 不满足交易条件
-                if buy_score > sell_score:
-                    higher = buy_score
-                    higher_type = "BUY"
-                    lower = sell_score
-                    lower_type = "SELL"
+                # -0.3 < score < 0.3 → HOLD
+                if trade_score > 0:
+                    message = f"市场偏多但信号不足 (分数: {trade_score:.2f}, 需 >= {self.BUY_THRESHOLD})"
+                elif trade_score < 0:
+                    message = f"市场偏空但信号不足 (分数: {trade_score:.2f}, 需 <= {self.SELL_THRESHOLD})"
                 else:
-                    higher = sell_score
-                    higher_type = "SELL"
-                    lower = buy_score
-                    lower_type = "BUY"
-
-                if higher < self.config.buy_threshold:
-                    # 双方分数都不够
-                    message = f"{higher_type}分数不足 ({higher:.2f} < {self.config.buy_threshold}, {lower_type}: {lower:.2f})"
-                else:
-                    # 分数够了但对方分数也够高（分数接近）
-                    message = f"市场震荡, 双方力量均衡 ({higher_type}: {higher:.2f}, {lower_type}: {lower:.2f})"
+                    message = f"市场中性 (分数: {trade_score:.2f})"
 
             if should_trade:
                 self._last_signal_time[symbol] = now
                 logger.info(f"AlphaPulse信号: {symbol} - {message}")
+
+            # 计算 buy_score 和 sell_score 用于返回（兼容旧接口）
+            buy_score = max(0, trade_score)
+            sell_score = max(0, -trade_score)
 
             return SignalCheckResult(
                 should_trade=should_trade,
@@ -565,7 +553,7 @@ class MarketMonitor:
                 buy_score=buy_score,
                 sell_score=sell_score,
                 confidence=confidence,
-                triggers=buy_triggers if signal_type == "buy" else sell_triggers,
+                triggers=triggers if signal_type != "hold" else [],
                 indicator_result=result,
                 message=message,
             )
@@ -574,86 +562,99 @@ class MarketMonitor:
             logger.error(f"检查交易信号失败 {symbol}: {e}")
             return None
 
-    def _calculate_score(
-        self,
-        result: TechnicalIndicatorResult,
-        signal_config: Dict,
-        signal_type: str,
-    ) -> Tuple[float, List[str]]:
-        """计算信号分数"""
+    def _calculate_trade_score(
+        self, result: TechnicalIndicatorResult
+    ) -> Tuple[float, List[str], Dict[str, float]]:
+        """
+        计算单一交易分数（范围: -1.0 到 1.0）
+
+        Returns:
+            score: 分数（-1.0 到 1.0）
+            triggers: 触发的因素列表
+            details: 各指标贡献详情
+        """
         score = 0.0
         triggers = []
+        details = {}
 
-        # RSI checks
-        for key in signal_config:
-            if key.startswith("rsi_"):
-                cfg = signal_config[key]
-                if cfg["check"](result.rsi):
-                    score += cfg["weight"]
-                    if key == "rsi_oversold":
-                        triggers.append(f"RSI超卖 {result.rsi:.1f}")
-                    elif key == "rsi_weak":
-                        triggers.append(f"RSI偏弱 {result.rsi:.1f}")
-                    elif key == "rsi_strong":
-                        triggers.append(f"RSI偏强 {result.rsi:.1f}")
+        # RSI: (RSI - 50) / 50 → -1 (极弱) 到 1 (极强)
+        rsi_factor = (result.rsi - 50) / 50
+        rsi_contribution = rsi_factor * self.TRADE_SIGNALS["rsi"]["weight"]
+        score += rsi_contribution
+        details["RSI"] = rsi_factor
+        if abs(rsi_factor) > 0.1:
+            if rsi_factor < 0:
+                triggers.append(f"RSI偏弱 {result.rsi:.1f}")
+            else:
+                triggers.append(f"RSI偏强 {result.rsi:.1f}")
 
-        # 布林带位置 - 统一逻辑：使用配置的check函数
-        for key in signal_config:
-            if key.startswith("bb_"):
-                cfg = signal_config[key]
-                if cfg["check"](result.bb_position):
-                    score += cfg["weight"]
-                    if key == "bb_bottom":
-                        triggers.append(f"布林带底部 {result.bb_position:.1f}%")
-                    elif key == "bb_lower_zone":
-                        triggers.append(f"布林带低位区间 {result.bb_position:.1f}%")
-                    elif key == "bb_top":
-                        triggers.append(f"布林带顶部 {result.bb_position:.1f}%")
-                    elif key == "bb_upper_zone":
-                        triggers.append(f"布林带高位区间 {result.bb_position:.1f}%")
+        # BB位置: (BB - 50) / 50 → -1 (底部) 到 1 (顶部)
+        bb_factor = (result.bb_position - 50) / 50
+        bb_contribution = bb_factor * self.TRADE_SIGNALS["bb_position"]["weight"]
+        score += bb_contribution
+        details["BB位置"] = bb_factor
+        if abs(bb_factor) > 0.2:
+            if bb_factor < 0:
+                triggers.append(f"布林带底部 {result.bb_position:.1f}%")
+            else:
+                triggers.append(f"布林带顶部 {result.bb_position:.1f}%")
 
-        # MACD柱状图
-        for key in signal_config:
-            if key.startswith("macd_"):
-                cfg = signal_config[key]
-                if signal_type == "buy" and result.macd_histogram > 0:
-                    score += cfg["weight"]
-                    triggers.append(f"MACD柱状图转正 {result.macd_histogram:.4f}")
-                elif signal_type == "sell" and result.macd_histogram < 0:
-                    score += cfg["weight"]
-                    triggers.append(f"MACD柱状图转负 {result.macd_histogram:.4f}")
+        # MACD: 归一化到 -1 到 1
+        macd_factor = max(-1, min(1, result.macd_histogram / 50))
+        macd_contribution = macd_factor * self.TRADE_SIGNALS["macd"]["weight"]
+        score += macd_contribution
+        details["MACD"] = macd_factor
+        if abs(macd_factor) > 0.1:
+            if macd_factor < 0:
+                triggers.append(f"MACD柱状图转负 {result.macd_histogram:.4f}")
+            else:
+                triggers.append(f"MACD柱状图转正 {result.macd_histogram:.4f}")
 
-        # ADX
-        for key in signal_config:
-            if key.startswith("adx_"):
-                cfg = signal_config[key]
-                if result.adx > cfg["threshold"]:
-                    score += cfg["weight"]
-                    direction = "上涨" if signal_type == "buy" else "下跌"
-                    triggers.append(f"ADX趋势明确 {result.adx:.1f} ({direction})")
+        # ADX: 趋势强度因子 (0 到 1)
+        adx_factor = max(0, min(1, (result.adx - 20) / 30))
+        adx_contribution = adx_factor * self.TRADE_SIGNALS["adx"]["weight"]
+        score += adx_contribution
+        details["ADX"] = adx_factor
+        if adx_factor > 0.1:
+            triggers.append(f"ADX趋势明确 {result.adx:.1f}")
 
-        # 价格位置
-        for key in signal_config:
-            if key.startswith("price_"):
-                cfg = signal_config[key]
-                if signal_type == "buy":
-                    if result.price_position_24h < cfg["threshold"]:
-                        score += cfg["weight"]
-                        triggers.append(f"24h低位 {result.price_position_24h:.1f}%")
-                else:
-                    if result.price_position_24h > cfg["threshold"]:
-                        score += cfg["weight"]
-                        triggers.append(f"24h高位 {result.price_position_24h:.1f}%")
+        # 24h价格位置: (Pos - 50) / 50 → -1 到 1
+        pos_24h_factor = (result.price_position_24h - 50) / 50
+        pos_24h_contribution = (
+            pos_24h_factor * self.TRADE_SIGNALS["price_position_24h"]["weight"]
+        )
+        score += pos_24h_contribution
+        details["24h位置"] = pos_24h_factor
+        if abs(pos_24h_factor) > 0.2:
+            if pos_24h_factor < 0:
+                triggers.append(f"24h低位 {result.price_position_24h:.1f}%")
+            else:
+                triggers.append(f"24h高位 {result.price_position_24h:.1f}%")
 
-        # 波动率
-        for key in signal_config:
-            if key.startswith("volatility_"):
-                cfg = signal_config[key]
-                if result.atr_percent > cfg["threshold"]:
-                    score += cfg["weight"]
-                    triggers.append(f"高波动率 {result.atr_percent:.2f}%")
+        # 7d价格位置: (Pos - 50) / 50 → -1 到 1
+        pos_7d_factor = (result.price_position_7d - 50) / 50
+        pos_7d_contribution = (
+            pos_7d_factor * self.TRADE_SIGNALS["price_position_7d"]["weight"]
+        )
+        score += pos_7d_contribution
+        details["7d位置"] = pos_7d_factor
+        if abs(pos_7d_factor) > 0.2:
+            if pos_7d_factor < 0:
+                triggers.append(f"7d低位 {result.price_position_7d:.1f}%")
+            else:
+                triggers.append(f"7d高位 {result.price_position_7d:.1f}%")
 
-        return score, triggers
+        # 波动率: 波动率越高，信号越可靠
+        volatility_factor = min(1, result.atr_percent / 1.0)
+        volatility_contribution = (
+            volatility_factor * self.TRADE_SIGNALS["volatility"]["weight"]
+        )
+        score += volatility_contribution
+        details["波动率"] = volatility_factor
+        if volatility_factor > 0.3:
+            triggers.append(f"波动率 {result.atr_percent:.2f}%")
+
+        return score, triggers, details
 
     async def get_latest_indicator(
         self, symbol: str
