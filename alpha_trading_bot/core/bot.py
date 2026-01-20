@@ -392,8 +392,8 @@ class TradingBot(BaseComponent):
                         self.enhanced_logger.logger.info(
                             f"🚀 收到 {signal.signal_type.upper()} 信号，执行主流程"
                         )
-                        # 执行主流程交易周期
-                        await self._trading_cycle(cycle_count)
+                        # 执行主流程交易周期，传递信号
+                        await self._trading_cycle(cycle_count, alphapulse_signal=signal)
                     else:
                         # 无信号，等待监控触发
                         self.enhanced_logger.logger.debug(
@@ -1810,15 +1810,19 @@ class TradingBot(BaseComponent):
             wait_time,
         )
 
-    async def _trading_cycle(self, cycle_num: int) -> None:
-        """执行一次交易循环"""
+    async def _trading_cycle(self, cycle_num: int, alphapulse_signal=None) -> None:
+        """执行一次交易循环
+
+        Args:
+            cycle_num: 周期编号
+            alphapulse_signal: AlphaPulse信号（可选，如果是从监控触发则传入）
+        """
         import time
 
         start_time = time.time()
         total_signals = 0
         executed_trades = 0
         alphapulse_signals = []
-        alphapulse_signal = None  # 初始化变量
         self._tp_sl_managed_this_cycle = False  # 重置周期标志
         self._managed_positions.clear()  # 重置已管理仓位集合
 
@@ -1837,50 +1841,36 @@ class TradingBot(BaseComponent):
                         f"🔍 AlphaPulse检查模式：buy/sell信号触发交易流程"
                     )
 
-                    # 使用已有的触发信号（从回调中设置），不再重新检查
-                    if (
-                        hasattr(self, "_alphapulse_trigger_event")
-                        and self._alphapulse_trigger_event
-                    ):
-                        alphapulse_signal = self._alphapulse_trigger_event
-                        self._alphapulse_trigger_event = None  # 清空事件
+                    # 如果有传入的信号，直接使用
+                    if alphapulse_signal and alphapulse_signal.signal_type in [
+                        "buy",
+                        "sell",
+                    ]:
+                        # 更新最后检查时间
+                        now = asyncio.get_event_loop().time()
+                        self._alphapulse_last_check_time[alphapulse_signal.symbol] = now
 
-                        if alphapulse_signal.signal_type in ["buy", "sell"]:
-                            # 更新最后检查时间
-                            now = asyncio.get_event_loop().time()
-                            self._alphapulse_last_check_time[
-                                alphapulse_signal.symbol
-                            ] = now
-
-                            alphapulse_signals.append(
-                                {
-                                    "type": alphapulse_signal.signal_type,
-                                    "symbol": alphapulse_signal.symbol,
-                                    "source": "alphapulse",
-                                    "confidence": alphapulse_signal.confidence,
-                                    "reason": alphapulse_signal.reasoning,
-                                    "execution_params": alphapulse_signal.execution_params,
-                                    "ai_result": alphapulse_signal.ai_result,
-                                }
-                            )
-                            self.enhanced_logger.logger.info(
-                                f"📡 AlphaPulse信号: {alphapulse_signal.signal_type.upper()} "
-                                f"{alphapulse_signal.symbol} (置信度: {alphapulse_signal.confidence:.2f})"
-                            )
-                        else:
-                            # 非 buy/sell 信号，跳过
-                            self.enhanced_logger.logger.info(
-                                f"💤 AlphaPulse信号类型非交易信号 ({alphapulse_signal.signal_type}) - 跳过交易周期"
-                            )
-                            await self._update_cycle_status(cycle_num, start_time, 0, 0)
-                            return
-                    else:
-                        # 没有触发信号，跳过
-                        self.enhanced_logger.logger.info(
-                            f"💤 无AlphaPulse触发信号 - 跳过交易周期"
+                        alphapulse_signals.append(
+                            {
+                                "type": alphapulse_signal.signal_type,
+                                "symbol": alphapulse_signal.symbol,
+                                "source": "alphapulse",
+                                "confidence": alphapulse_signal.confidence,
+                                "reason": alphapulse_signal.reasoning,
+                                "execution_params": alphapulse_signal.execution_params,
+                                "ai_result": alphapulse_signal.ai_result,
+                            }
                         )
-                        await self._update_cycle_status(cycle_num, start_time, 0, 0)
-                        return
+                        self.enhanced_logger.logger.info(
+                            f"📡 AlphaPulse信号: {alphapulse_signal.signal_type.upper()} "
+                            f"{alphapulse_signal.symbol} (置信度: {alphapulse_signal.confidence:.2f})"
+                        )
+                    else:
+                        # 没有传入信号或信号无效，继续执行正常交易流程
+                        self.enhanced_logger.logger.info(
+                            f"💤 无有效AlphaPulse信号 - 继续执行正常交易流程"
+                        )
+                        # 不返回，继续执行 AI/策略信号流程
             else:
                 # AlphaPulse 未启用，正常执行主交易流程
                 self.enhanced_logger.logger.info(
