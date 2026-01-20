@@ -539,9 +539,9 @@ class MarketMonitor:
                 # -0.3 < score < 0.3 → HOLD
                 signal_type = "hold"
                 if trade_score > 0:
-                    message = f"市场偏多但信号不足 (分数: {trade_score:.2f}, 需 >= {self.BUY_THRESHOLD})"
+                    message = f"市场偏多但信号不足 (分数: {trade_score:.2f}, BUY 信号需 >= {self.BUY_THRESHOLD})"
                 elif trade_score < 0:
-                    message = f"市场偏空但信号不足 (分数: {trade_score:.2f}, 需 <= {self.SELL_THRESHOLD})"
+                    message = f"市场偏空但信号不足 (分数: {trade_score:.2f}, SELL 信号需 <= {self.SELL_THRESHOLD})"
                 else:
                     message = f"市场中性 (分数: {trade_score:.2f})"
 
