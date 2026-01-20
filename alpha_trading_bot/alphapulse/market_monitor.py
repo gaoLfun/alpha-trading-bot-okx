@@ -541,6 +541,13 @@ class MarketMonitor:
 
             if should_trade:
                 self._last_signal_time[symbol] = now
+
+            # 记录所有信号（BUY/SELL/HOLD）
+            if signal_type == "hold":
+                logger.info(
+                    f"💤 {symbol} HOLD信号 (分数: {trade_score:.2f}, 置信度: {confidence:.2f})"
+                )
+            else:
                 logger.info(f"AlphaPulse信号: {symbol} - {message}")
 
             # 计算 buy_score 和 sell_score 用于返回（兼容旧接口）
