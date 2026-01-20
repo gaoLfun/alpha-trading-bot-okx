@@ -347,18 +347,29 @@ class MarketMonitor:
                         # 创建简化的信号对象供回调使用
                         class SimpleSignal:
                             def __init__(
-                                self, symbol, signal_type, confidence, message
+                                self,
+                                symbol,
+                                signal_type,
+                                confidence,
+                                message,
+                                execution_params=None,
+                                ai_result=None,
+                                market_data=None,
                             ):
                                 self.symbol = symbol
                                 self.signal_type = signal_type
                                 self.confidence = confidence
                                 self.reasoning = message
+                                self.execution_params = execution_params or {}
+                                self.ai_result = ai_result
+                                self.market_data = market_data or {}
 
                         callback_signal = SimpleSignal(
                             symbol,
                             signal_result.signal_type,
                             signal_result.confidence,
                             signal_result.message,
+                            market_data={"indicators": signal_result.indicator_result},
                         )
                         try:
                             self.on_signal(callback_signal)
