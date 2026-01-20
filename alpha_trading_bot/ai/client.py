@@ -202,7 +202,15 @@ class AIClient:
 
             # 构建提示词 - 根据提供商选择不同的prompt策略
             composite_price_position = 50.0  # 默认价格位置
-            if provider in ["kimi", "deepseek"]:
+
+            # 检查是否是 AlphaPulse 验证请求
+            alphapulse_verification = market_data.get("_alphapulse_verification")
+            if alphapulse_verification:
+                # 使用 AlphaPulse 验证专用提示词
+                prompt = self._build_alphapulse_verification_prompt(
+                    alphapulse_verification
+                )
+            elif provider in ["kimi", "deepseek"]:
                 # 对于高级提供商，使用增强的prompt
                 prompt, composite_price_position = self._build_enhanced_prompt(
                     provider, market_data
@@ -558,6 +566,59 @@ MACD: {macd}
 }}"""
 
         return prompt, composite_price_position
+
+    def _build_alphapulse_verification_prompt(
+        self, verification_data: Dict[str, Any]
+    ) -> str:
+        """构建 AlphaPulse 信号验证专用提示词"""
+
+        signal_type = verification_data.get("signal_type", "UNKNOWN")
+        symbol = verification_data.get("symbol", "UNKNOWN")
+        confidence = verification_data.get("confidence", 0.0)
+        reasoning = verification_data.get("reasoning", "无推理")
+        price = verification_data.get("price", 0)
+        rsi = verification_data.get("rsi", 50)
+        macd = verification_data.get("macd", 0)
+        adx = verification_data.get("adx", 0)
+        bb_position = verification_data.get("bb_position", 50)
+        atr_percent = verification_data.get("atr_percent", 0)
+        composite_position = verification_data.get("composite_position", 50)
+
+        prompt = f"""你是专业的加密货币交易分析师。AlphaPulse 实时监控系统检测到以下信号，请验证是否合理：
+
+【AlphaPulse 信号】
+- 交易对: {symbol}
+- 信号类型: {signal_type}
+- 置信度: {confidence:.2f}
+- AlphaPulse推理: {reasoning}
+
+【当前市场技术指标】
+- 当前价格: ${price:.2f}
+- RSI: {rsi:.1f}
+- MACD柱状图: {macd:.4f}
+- ADX: {adx:.1f}
+- 布林带位置: {bb_position:.1f}%
+- ATR百分比: {atr_percent:.2f}%
+- 综合价格位置: {composite_position:.1f}%
+
+请分析：
+1. AlphaPulse 的信号是否与技术指标一致？
+2. 当前市场环境是否支持这个信号方向？
+3. 是否有明显的技术面矛盾？
+
+请给出验证结果：
+- 如果信号合理且方向正确 → CONFIRM
+- 如果信号不合理或方向错误 → REJECT
+- 如果信号方向与市场趋势相反 → REVERSE（建议反向操作）
+
+同时给出你的置信度 (0.0-1.0) 和简要原因（不少于20字）。
+
+请严格按照以下格式输出：
+VERIFICATION: CONFIRM|REJECT|REVERSE
+CONFIDENCE: 0.xx
+REASON: 你的详细分析原因"""
+
+        return prompt
 
     def _build_enhanced_prompt(
         self, provider: str, market_data: Dict[str, Any]

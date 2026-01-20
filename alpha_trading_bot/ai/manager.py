@@ -1321,7 +1321,6 @@ class AIManager(BaseComponent):
         except Exception as e:
             logger.error(f"更新自学习失败: {e}")
 
-
     async def verify_signal(
         self,
         signal_type: str,
@@ -1414,14 +1413,25 @@ REASON: 你的分析原因"""
             provider = self.config.primary_provider or "deepseek"
 
             try:
+                # 构建用于验证的市场数据（包含验证提示词）
+                verification_market_data = market_data.copy()
+                verification_market_data["_alphapulse_verification"] = {
+                    "signal_type": signal_type,
+                    "symbol": symbol,
+                    "confidence": confidence,
+                    "reasoning": reasoning,
+                    "price": price,
+                    "rsi": rsi,
+                    "macd": macd,
+                    "adx": adx,
+                    "bb_position": bb_position,
+                    "atr_percent": atr_percent,
+                    "composite_position": composite_position,
+                }
+
+                # 调用 AI 生成信号（使用标准接口）
                 ai_signal = await self.ai_client.generate_signal(
-                    prompt=prompt,
-                    provider=provider,
-                    price=price,
-                    volume=market_data.get("volume", 0),
-                    atr_percent=atr_percent,
-                    rsi=rsi,
-                    bb_position=bb_position,
+                    provider, verification_market_data
                 )
 
                 # 解析验证结果
@@ -1441,12 +1451,18 @@ REASON: 你的分析原因"""
                 # 提取置信度
                 import re
 
-                confidence_match = re.search(r"CONFIDENCE:\s*([0-9.]+)", result_text, re.I)
-                ai_confidence = float(confidence_match.group(1)) if confidence_match else 0.5
+                confidence_match = re.search(
+                    r"CONFIDENCE:\s*([0-9.]+)", result_text, re.I
+                )
+                ai_confidence = (
+                    float(confidence_match.group(1)) if confidence_match else 0.5
+                )
 
                 # 提取原因
                 reason_match = re.search(r"REASON:\s*(.+)", result_text, re.I | re.S)
-                ai_reason = reason_match.group(1).strip() if reason_match else result_text
+                ai_reason = (
+                    reason_match.group(1).strip() if reason_match else result_text
+                )
 
                 logger.info(
                     f"✅ AI 验证结果: {direction.upper()} (AI置信度: {ai_confidence:.2f}) - {ai_reason[:100]}"
@@ -1476,7 +1492,6 @@ REASON: 你的分析原因"""
                 "confidence": 0.3,
                 "reason": f"验证过程出错，默认确认: {str(e)}",
             }
-
 
 
 # 全局AI管理器实例
@@ -1672,4 +1687,3 @@ async def cleanup_ai_manager() -> None:
         except Exception as e:
             logger.error(f"价格位置缩放失败: {e}")
             return signal  # 如果缩放失败，返回原始信号
-
