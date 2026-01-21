@@ -248,7 +248,25 @@ class DataManager:
                     "low_7d": float("inf"),
                     "last_update": None,
                 }
+                # 注意：如果 price_range_cache 已被 update_ohlcv 正确初始化，
+                # 不要覆盖它（update_ohlcv 会用实际价格初始化）
+                if (
+                    symbol in self.price_range_cache
+                    and self.price_range_cache[symbol].get("high_24h", 0) > 0
+                ):
+                    # 已有有效数据，保持现状
+                    pass
+                else:
+                    # 无有效数据，初始化为无效值，后续 update_ohlcv 会更新
+                    self.price_range_cache[symbol] = {
+                        "high_24h": 0,
+                        "low_24h": float("inf"),
+                        "high_7d": 0,
+                        "low_7d": float("inf"),
+                        "last_update": None,
+                    }
 
+                # 先打印日志，再释放初始化锁（确保日志完成后再标记初始化结束）
                 logger.info(f"✅ 数据管理器已初始化: {symbol}, 时间周期: {timeframes}")
             finally:
                 self._initializing[symbol] = False
