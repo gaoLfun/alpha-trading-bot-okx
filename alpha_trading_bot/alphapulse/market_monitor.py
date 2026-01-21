@@ -13,6 +13,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..utils.technical import TechnicalIndicators
 from .config import AlphaPulseConfig
 from .data_manager import DataManager, IndicatorSnapshot, TrendDirection
+from .oversold_rebound_detector import (
+    OversoldReboundDetector,
+    ReboundCheckResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +230,10 @@ class MarketMonitor:
         # 交易信号缓存（避免重复触发）
         self._last_signal_time = {}
         self._cooldown_seconds = config.cooldown_minutes * 60
+
+        # 超卖反弹检测器（新增）
+        self.oversold_detector = OversoldReboundDetector()
+        self._prev_indicator_result = {}  # 用于超卖检测的历史指标
 
         # 初始化交易对
         for symbol in config.symbols:
@@ -511,41 +519,108 @@ class MarketMonitor:
     async def _check_signals(
         self, symbol: str, result: TechnicalIndicatorResult
     ) -> Optional[SignalCheckResult]:
-        """检查交易信号"""
+        """检查交易信号 - 集成双重信号检测和信号融合"""
         try:
-            # 计算单一交易分数
-            trade_score, triggers, details = self._calculate_trade_score(result)
+            # 获取历史指标（用于超卖反弹检测）
+            prev_result = self._prev_indicator_result.get(symbol)
+
+            # 计算单一交易分数（现在返回4个值）
+            trade_score, triggers, details, rebound_result = (
+                self._calculate_trade_score(result, prev_result)
+            )
+
+            # 保存当前指标作为历史
+            self._prev_indicator_result[symbol] = result
+
+            # 超卖反弹信号检测
+            rebound_signal_type = rebound_result.signal_type  # "buy" or "hold"
+            rebound_confidence = rebound_result.confidence
+            is_rebound_buy = rebound_result.is_rebound_opportunity
 
             # 转换为 0-1 范围的置信度用于返回
             # score 范围 -1 到 1，转换为 0 到 1
-            confidence = (trade_score + 1) / 2
+            alpha_confidence = (trade_score + 1) / 2
 
-            # 确定信号类型
+            # 初始化信号类型
             signal_type = "hold"
             should_trade = False
             message = ""
+            combined_triggers = triggers.copy()
 
-            if trade_score >= self.BUY_THRESHOLD:
-                # 分数 >= 0.3 → BUY
+            # ============================================================
+            # 信号融合逻辑
+            # ============================================================
+
+            # 场景1: AlphaPulse BUY + 超卖反弹 BUY → BUY（最强信号）
+            if trade_score >= self.BUY_THRESHOLD and is_rebound_buy:
+                signal_type = "buy"
+                should_trade = True
+                combined_triggers.extend(rebound_result.triggers)
+                message = (
+                    f"🎯 融合信号 BUY: AlphaPulse分数={trade_score:.2f} + 超卖反弹确认, "
+                    f"触发因素: {', '.join(set(combined_triggers))}"
+                )
+                logger.info(f"✅ {symbol}: {message}")
+
+            # 场景2: AlphaPulse SELL + 超卖反弹 BUY → BUY（反转信号）
+            elif trade_score <= self.SELL_THRESHOLD and is_rebound_buy:
+                signal_type = "buy"
+                should_trade = True
+                combined_triggers.extend(rebound_result.triggers)
+                message = (
+                    f"🔄 反转信号 BUY: AlphaPulse SELL分数={trade_score:.2f} 但超卖反弹检测到买入机会, "
+                    f"反弹信号: {', '.join(rebound_result.triggers)}, 信心度={rebound_confidence:.2f}"
+                )
+                logger.warning(f"⚠️ {symbol}: {message}")
+
+            # 场景3: AlphaPulse HOLD + 超卖反弹 BUY → BUY（新机会）
+            elif (
+                -self.BUY_THRESHOLD < trade_score < self.BUY_THRESHOLD
+                and is_rebound_buy
+            ):
+                signal_type = "buy"
+                should_trade = True
+                combined_triggers.extend(rebound_result.triggers)
+                message = (
+                    f"🚀 超卖反弹 BUY: AlphaPulse HOLD(分数={trade_score:.2f}) 但反弹信号触发, "
+                    f"信号: {', '.join(rebound_result.triggers)}, 信心度={rebound_confidence:.2f}"
+                )
+                logger.info(f"✅ {symbol}: {message}")
+
+            # 场景4: AlphaPulse BUY (无超卖反弹) → BUY
+            elif trade_score >= self.BUY_THRESHOLD:
                 signal_type = "buy"
                 should_trade = True
                 message = f"BUY信号触发 (分数: {trade_score:.2f}), 触发因素: {', '.join(triggers)}"
+                logger.info(f"🎯 {symbol}: {message}")
+
+            # 场景5: AlphaPulse SELL (无超卖反弹) → SELL
             elif trade_score <= self.SELL_THRESHOLD:
-                # 分数 <= -0.3 → SELL
                 signal_type = "sell"
                 should_trade = True
                 message = f"SELL信号触发 (分数: {trade_score:.2f}), 触发因素: {', '.join(triggers)}"
+                logger.info(f"🎯 {symbol}: {message}")
+
+            # 场景6: AlphaPulse HOLD + 超卖反弹 HOLD → HOLD
             else:
-                # -0.3 < score < 0.3 → HOLD
                 signal_type = "hold"
                 if trade_score > 0:
                     message = f"市场偏多但信号不足 (分数: {trade_score:.2f}, BUY 信号需 >= {self.BUY_THRESHOLD})"
+                    if is_rebound_buy:
+                        message += (
+                            f" | 超卖反弹信号: {', '.join(rebound_result.triggers)}"
+                        )
                 elif trade_score < 0:
                     message = f"市场偏空但信号不足 (分数: {trade_score:.2f}, SELL 信号需 <= {self.SELL_THRESHOLD})"
                 else:
                     message = f"市场中性 (分数: {trade_score:.2f})"
 
-            # 检查冷却时间（仅对BUY/SELL信号生效）
+                if is_rebound_buy:
+                    message += f" | ⏳ 超卖观察中: {rebound_result.message}"
+
+            # ============================================================
+            # 冷却时间检查
+            # ============================================================
             now = time.time()
             if should_trade:
                 last_signal = self._last_signal_time.get(symbol, 0)
@@ -557,7 +632,7 @@ class MarketMonitor:
                         f"信号冷却中 ({self._cooldown_seconds // 60}分钟内不重复触发)"
                     )
                     logger.info(
-                        f"💤 {symbol} 冷却中 - 跳过BUY/SELL触发 (剩余{int(self._cooldown_seconds - (now - last_signal))}秒)"
+                        f"💤 {symbol} 冷却中 - 跳过{signal_type.upper()}触发 (剩余{int(self._cooldown_seconds - (now - last_signal))}秒)"
                     )
 
             if should_trade:
@@ -566,7 +641,7 @@ class MarketMonitor:
             # 记录所有信号（BUY/SELL/HOLD）
             if signal_type == "hold":
                 logger.info(
-                    f"💤 {symbol} HOLD信号 (分数: {trade_score:.2f}, 置信度: {confidence:.2f})"
+                    f"💤 {symbol} HOLD信号 (分数: {trade_score:.2f}, 置信度: {alpha_confidence:.2f})"
                 )
             else:
                 logger.info(f"AlphaPulse信号: {symbol} - {message}")
@@ -575,13 +650,19 @@ class MarketMonitor:
             buy_score = max(0, trade_score)
             sell_score = max(0, -trade_score)
 
+            # 融合信号时，使用超卖反弹的信心度
+            final_confidence = alpha_confidence
+            if is_rebound_buy and signal_type == "buy":
+                # 使用两者的加权平均
+                final_confidence = alpha_confidence * 0.4 + rebound_confidence * 0.6
+
             return SignalCheckResult(
                 should_trade=should_trade,
                 signal_type=signal_type,
                 buy_score=buy_score,
                 sell_score=sell_score,
-                confidence=confidence,
-                triggers=triggers if signal_type != "hold" else [],
+                confidence=final_confidence,
+                triggers=combined_triggers if signal_type != "hold" else [],
                 indicator_result=result,
                 message=message,
             )
@@ -591,23 +672,59 @@ class MarketMonitor:
             return None
 
     def _calculate_trade_score(
-        self, result: TechnicalIndicatorResult
-    ) -> Tuple[float, List[str], Dict[str, float]]:
+        self,
+        result: TechnicalIndicatorResult,
+        prev_result: Optional[TechnicalIndicatorResult] = None,
+    ) -> Tuple[float, List[str], Dict[str, float], ReboundCheckResult]:
         """
         计算单一交易分数（范围: -1.0 到 1.0）
+
+        在超卖区域时自动调整权重，降低MACD负面影响，增强价格位置权重。
+
+        Args:
+            result: 当前技术指标结果
+            prev_result: 上一根K线的指标结果（用于超卖反弹检测）
 
         Returns:
             score: 分数（-1.0 到 1.0）
             triggers: 触发的因素列表
             details: 各指标贡献详情
+            rebound_result: 超卖反弹检测结果
         """
         score = 0.0
         triggers = []
         details = {}
 
+        # 检测是否处于超卖区域
+        is_extreme_low = (
+            result.price_position_24h < 15.0 and result.price_position_7d < 15.0
+        )
+        is_oversold = result.rsi < 30.0
+        is_oversold_area = is_extreme_low and is_oversold
+
+        # 超卖区域权重调整配置
+        oversold_weights = {
+            "rsi": 0.25,  # 增强：超卖RSI是强信号
+            "bb_position": 0.10,  # 降低：BB位置在超卖时参考价值下降
+            "macd": 0.05,  # 大幅降低：短期下跌动能不应抵消极低位信号
+            "adx": 0.15,  # 增强：趋势确认对反弹很重要
+            "price_position_24h": 0.30,  # 大幅增强：极低位是核心信号
+            "price_position_7d": 0.15,  # 增强：7日极低位确认
+            "volatility": 0.00,  # 忽略：波动率在超卖时不是关键
+        }
+
+        # 选择权重
+        if is_oversold_area:
+            active_weights = oversold_weights
+            logger.debug(
+                f"🎯 使用超卖区域权重: 价格位置={result.price_position_24h:.1f}%, RSI={result.rsi:.1f}"
+            )
+        else:
+            active_weights = {k: v["weight"] for k, v in self.TRADE_SIGNALS.items()}
+
         # RSI: (RSI - 50) / 50 → -1 (极弱) 到 1 (极强)
         rsi_factor = (result.rsi - 50) / 50
-        rsi_contribution = rsi_factor * self.TRADE_SIGNALS["rsi"]["weight"]
+        rsi_contribution = rsi_factor * active_weights["rsi"]
         score += rsi_contribution
         details["RSI"] = rsi_factor
         if abs(rsi_factor) > 0.1:
@@ -618,7 +735,7 @@ class MarketMonitor:
 
         # BB位置: (BB - 50) / 50 → -1 (底部) 到 1 (顶部)
         bb_factor = (result.bb_position - 50) / 50
-        bb_contribution = bb_factor * self.TRADE_SIGNALS["bb_position"]["weight"]
+        bb_contribution = bb_factor * active_weights["bb_position"]
         score += bb_contribution
         details["BB位置"] = bb_factor
         if abs(bb_factor) > 0.2:
@@ -629,7 +746,7 @@ class MarketMonitor:
 
         # MACD: 归一化到 -1 到 1
         macd_factor = max(-1, min(1, result.macd_histogram / 50))
-        macd_contribution = macd_factor * self.TRADE_SIGNALS["macd"]["weight"]
+        macd_contribution = macd_factor * active_weights["macd"]
         score += macd_contribution
         details["MACD"] = macd_factor
         if abs(macd_factor) > 0.1:
@@ -640,7 +757,7 @@ class MarketMonitor:
 
         # ADX: 趋势强度因子 (0 到 1)
         adx_factor = max(0, min(1, (result.adx - 20) / 30))
-        adx_contribution = adx_factor * self.TRADE_SIGNALS["adx"]["weight"]
+        adx_contribution = adx_factor * active_weights["adx"]
         score += adx_contribution
         details["ADX"] = adx_factor
         if adx_factor > 0.1:
@@ -648,9 +765,7 @@ class MarketMonitor:
 
         # 24h价格位置: (Pos - 50) / 50 → -1 到 1
         pos_24h_factor = (result.price_position_24h - 50) / 50
-        pos_24h_contribution = (
-            pos_24h_factor * self.TRADE_SIGNALS["price_position_24h"]["weight"]
-        )
+        pos_24h_contribution = pos_24h_factor * active_weights["price_position_24h"]
         score += pos_24h_contribution
         details["24h位置"] = pos_24h_factor
         if abs(pos_24h_factor) > 0.2:
@@ -661,9 +776,7 @@ class MarketMonitor:
 
         # 7d价格位置: (Pos - 50) / 50 → -1 到 1
         pos_7d_factor = (result.price_position_7d - 50) / 50
-        pos_7d_contribution = (
-            pos_7d_factor * self.TRADE_SIGNALS["price_position_7d"]["weight"]
-        )
+        pos_7d_contribution = pos_7d_factor * active_weights["price_position_7d"]
         score += pos_7d_contribution
         details["7d位置"] = pos_7d_factor
         if abs(pos_7d_factor) > 0.2:
@@ -674,15 +787,26 @@ class MarketMonitor:
 
         # 波动率: 波动率越高，信号越可靠
         volatility_factor = min(1, result.atr_percent / 1.0)
-        volatility_contribution = (
-            volatility_factor * self.TRADE_SIGNALS["volatility"]["weight"]
-        )
+        volatility_contribution = volatility_factor * active_weights["volatility"]
         score += volatility_contribution
         details["波动率"] = volatility_factor
         if volatility_factor > 0.3:
             triggers.append(f"波动率 {result.atr_percent:.2f}%")
 
-        return score, triggers, details
+        # 运行超卖反弹检测（作为第二信号源）
+        rebound_result = self.oversold_detector.check_rebound(result, prev_result)
+
+        # 记录超卖区域信息
+        if is_oversold_area:
+            details["is_oversold_area"] = True
+            details["oversold_weights"] = oversold_weights
+            logger.debug(
+                f"📊 超卖区域: score={score:.3f}, 反弹检测={rebound_result.signal_type}, 信心度={rebound_result.confidence:.2f}"
+            )
+        else:
+            details["is_oversold_area"] = False
+
+        return score, triggers, details, rebound_result
 
     async def get_latest_indicator(
         self, symbol: str
