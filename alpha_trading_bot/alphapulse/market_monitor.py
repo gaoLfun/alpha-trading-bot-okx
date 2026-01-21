@@ -406,12 +406,29 @@ class MarketMonitor:
 
             current_price = closes[-1]
 
-            # 获取价格区间
-            price_range = await self.data_manager.get_price_range(symbol)
-            high_24h = price_range["high_24h"]
-            low_24h = price_range["low_24h"]
-            high_7d = price_range["high_7d"]
-            low_7d = price_range["low_7d"]
+            # 获取 24h 高低价（从交易所 ticker 获取）
+            try:
+                ticker = await self.exchange_client.fetch_ticker(symbol)
+                high_24h = ticker.high
+                low_24h = ticker.low
+            except Exception as e:
+                logger.warning(f"⚠️ 获取24h高低价失败，使用K线计算: {e}")
+                high_24h = max(highs)
+                low_24h = min(lows)
+
+            # 计算 7d 高低价（从 OHLCV 数据计算）
+            # 7天 = 7 * 24 * 12 = 2016 根 5m K线
+            # 如果数据不足，回退到使用已有数据
+            klines_7d = 7 * 24 * 12  # 5m 周期
+            if len(ohlcv) >= klines_7d:
+                highs_7d = [d[2] for d in ohlcv[-klines_7d:]]
+                lows_7d = [d[3] for d in ohlcv[-klines_7d:]]
+            else:
+                # 数据不足时使用全部数据
+                highs_7d = highs
+                lows_7d = lows
+            high_7d = max(highs_7d) if highs_7d else high_24h
+            low_7d = min(lows_7d) if lows_7d else low_24h
 
             # 计算位置百分比
             pos_24h = self.data_manager.get_price_position(
