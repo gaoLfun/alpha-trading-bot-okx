@@ -475,8 +475,8 @@ class MarketMonitor:
             plus_di = 0.0
             minus_di = 0.0
 
-            # 计算布林带 (返回元组: (上轨, 中轨, 下轨))
-            bb_upper_list, bb_middle_list, bb_lower_list = (
+            # 计算布林带 (返回元组: (中轨, 上轨, 下轨))
+            bb_middle_list, bb_upper_list, bb_lower_list = (
                 self.tech_indicators.calculate_bollinger_bands(
                     closes, period=params["bb_period"], num_std=params["bb_std"]
                 )
