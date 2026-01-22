@@ -819,12 +819,18 @@ class ExchangeClient:
                 logger.warning(f"获取到空的K线数据: {symbol}, {timeframe}")
                 return []
 
-            # 验证数据格式
+            # 验证数据格式（跳过 open_time[1]，因为它是字符串）
             valid_candles = []
             for candle in ohlcv:
                 if isinstance(candle, list) and len(candle) >= 6:
-                    # 验证时间戳和价格数据
-                    if all(isinstance(x, (int, float)) for x in candle[:6]):
+                    # 验证时间戳[0]和价格数据[2-5]（跳过 open_time[1]）
+                    if (
+                        isinstance(candle[0], int)  # timestamp
+                        and isinstance(candle[2], (int, float))  # open_price
+                        and isinstance(candle[3], (int, float))  # high_price
+                        and isinstance(candle[4], (int, float))  # low_price
+                        and isinstance(candle[5], (int, float))  # close_price
+                    ):
                         valid_candles.append(candle)
                     else:
                         logger.warning(f"无效的K线数据格式: {candle}")

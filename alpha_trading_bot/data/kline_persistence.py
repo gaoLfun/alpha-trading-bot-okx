@@ -41,10 +41,10 @@ class OHLCVData:
     volume: float  # 成交量
 
     def to_list(self) -> List:
-        """转换为列表格式"""
+        """转换为列表格式（保持timestamp为整数，open_time为字符串）"""
         return [
-            self.timestamp,
-            self.open_time,
+            self.timestamp,  # 保持整数时间戳
+            self.open_time,  # 字符串格式
             self.open_price,
             self.high_price,
             self.low_price,
@@ -54,10 +54,10 @@ class OHLCVData:
 
     @classmethod
     def from_list(cls, data: List) -> "OHLCVData":
-        """从列表创建"""
+        """从列表创建（兼容整数时间戳和字符串open_time）"""
         return cls(
-            timestamp=data[0],
-            open_time=str(data[1]),
+            timestamp=int(data[0]),  # 确保是整数
+            open_time=str(data[1]),  # 确保是字符串
             open_price=float(data[2]),
             high_price=float(data[3]),
             low_price=float(data[4]),
@@ -159,7 +159,7 @@ class KLinePersistenceManager:
         Args:
             symbol: 交易对
             timeframe: 时间周期
-            klines: CCXT 格式的 K 线数据列表
+            klines: K 线数据列表（支持 CCXT 格式或已转换格式）
 
         Returns:
             是否保存成功
@@ -167,8 +167,15 @@ class KLinePersistenceManager:
         try:
             file_path = self._get_file_path(symbol, timeframe)
 
-            # 转换数据
-            ohlcv_data = [OHLCVData.from_ccxt(k).to_list() for k in klines]
+            # 转换数据（兼容 CCXT 格式和已保存格式）
+            ohlcv_data = []
+            for k in klines:
+                if isinstance(k[0], int) and isinstance(k[1], str):
+                    # 已经是 OHLCVData 格式（从文件加载的）
+                    ohlcv_data.append(k)
+                else:
+                    # CCXT 格式，需要转换
+                    ohlcv_data.append(OHLCVData.from_ccxt(k).to_list())
 
             if not ohlcv_data:
                 logger.warning(f"没有 K 线数据需要保存: {symbol} {timeframe}")
