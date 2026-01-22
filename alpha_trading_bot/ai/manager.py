@@ -1373,10 +1373,9 @@ class AIManager(BaseComponent):
                 bb_position = indicator_result.get("bb_position", 50)
                 atr_percent = indicator_result.get("atr_percent", 0)
                 price = market_data.get("price", 0)
-                composite_position = (
-                    indicator_result.get("price_position_24h", 50)
-                    + indicator_result.get("price_position_7d", 50)
-                ) / 2
+                price_position_24h = indicator_result.get("price_position_24h", 50)
+                price_position_7d = indicator_result.get("price_position_7d", 50)
+                composite_position = (price_position_24h + price_position_7d) / 2
                 logger.info(
                     f"🎯 AI验证使用 AlphaPulse 实时指标: "
                     f"RSI={rsi:.1f}, MACD={macd:.4f}, ADX={adx:.1f}, "
@@ -1391,6 +1390,12 @@ class AIManager(BaseComponent):
                 adx = technical_data.get("adx", 0)
                 bb_position = technical_data.get("price_position", 50)
                 atr_percent = market_data.get("atr_percentage", 0)
+                price_position_24h = market_data.get(
+                    "composite_price_position", 50
+                )  # 使用综合位置作为24h近似
+                price_position_7d = market_data.get(
+                    "composite_price_position", 50
+                )  # 回退时使用综合位置
                 composite_position = market_data.get("composite_price_position", 50)
                 logger.warning(
                     f"⚠️ AI验证未获取到 AlphaPulse 实时指标，回退使用 market_data，"
@@ -1413,7 +1418,9 @@ class AIManager(BaseComponent):
 - ADX: {adx:.1f} ({"无趋势" if adx < 20 else "弱趋势" if adx < 25 else "中等趋势" if adx < 40 else "强趋势"})
 - 布林带位置: {bb_position:.1f}% ({"底部-超卖区域" if bb_position < 20 else "低位" if bb_position < 40 else "中轨" if bb_position < 60 else "高位" if bb_position < 80 else "顶部-超买区域"})
 - ATR百分比: {atr_percent:.2f}%
-- 综合价格位置: {composite_position:.1f}% ({"极低位-买入机会" if composite_position < 15 else "低位" if composite_position < 35 else "中性" if composite_position < 65 else "高位" if composite_position < 85 else "极高位-风险区域"})
+- 24h价格位置: {price_position_24h:.1f}% (相对24h区间: {"极低位" if price_position_24h < 15 else "低位" if price_position_24h < 35 else "中性" if price_position_24h < 65 else "高位" if price_position_24h < 85 else "极高位"})
+- 7d价格位置: {price_position_7d:.1f}% (相对7日区间: {"极低位-买入机会" if price_position_7d < 15 else "低位" if price_position_7d < 35 else "中性" if price_position_7d < 65 else "高位" if price_position_7d < 85 else "极高位-风险区域"})
+- 综合价格位置: {composite_position:.1f}% (24h与7d的平均值)
 
 【验证要点】
 请从以下维度分析信号合理性：
