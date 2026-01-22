@@ -680,18 +680,48 @@ class ExchangeClient:
     async def fetch_ohlcv(
         self, symbol: str, timeframe: str = "5m", limit: int = 100
     ) -> List[List[float]]:
-        """获取K线数据 - 增强版"""
+        """获取K线数据 - 增强版（支持获取更多历史数据）"""
         try:
             # 添加参数验证
             if not symbol or not timeframe:
                 raise ValueError("symbol和timeframe不能为空")
 
-            # 限制请求数量，避免交易所限流
-            # 5m K线：2000根 ≈ 7天，用于7日价格位置计算
-            limit = min(limit, 2000)
+            # OKX 交易所单次请求最多返回 300 根 K 线
+            # 需要多次请求才能获取足够的历史数据
+            MAX_PER_REQUEST = 300
+            MAX_TOTAL = 3000  # 最多获取 3000 根 ≈ 10 天
 
-            # 尝试获取数据
-            ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            if limit <= MAX_PER_REQUEST:
+                # 只需要一次请求
+                ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            else:
+                # 需要多次请求获取历史数据
+                ohlcv = []
+                remaining = min(limit, MAX_TOTAL)
+                since = None
+
+                while remaining > 0 and len(ohlcv) < MAX_TOTAL:
+                    request_count = min(remaining, MAX_PER_REQUEST)
+                    batch = await self.exchange.fetch_ohlcv(
+                        symbol, timeframe, limit=request_count, since=since
+                    )
+
+                    if not batch or len(batch) == 0:
+                        break
+
+                    ohlcv.extend(batch)
+                    remaining -= len(batch)
+
+                    # 更新 since 为下一批请求的时间戳
+                    if batch:
+                        since = batch[0][0] - 1  # 获取更早的数据
+
+                    logger.info(
+                        f"📥 分批获取 K 线: 已获取 {len(ohlcv)} 根, 还需 {remaining} 根"
+                    )
+
+                    # 避免请求过快
+                    await asyncio.sleep(0.1)
 
             # 验证返回数据
             if not ohlcv or not isinstance(ohlcv, list):
