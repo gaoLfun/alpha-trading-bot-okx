@@ -684,9 +684,16 @@ class MarketMonitor:
                     # 价格偏高，降级为 HOLD
                     signal_type = "hold"
                     should_trade = False
+                    # 找出不符合条件的参数
+                    exceeded = []
+                    if bb_position >= 50:
+                        exceeded.append(f"BB={bb_position:.1f}% > 50%")
+                    if price_position_24h >= 50:
+                        exceeded.append(f"24h={price_position_24h:.1f}% > 50%")
+                    if price_position_7d >= 40:
+                        exceeded.append(f"7d={price_position_7d:.1f}% > 40%")
                     message = (
-                        f"BUY信号被拦截: 价格位置偏高 "
-                        f"(BB={bb_position:.1f}%, 24h={price_position_24h:.1f}%, 7d={price_position_7d:.1f}%)，"
+                        f"BUY信号被拦截: 价格位置偏高 ({', '.join(exceeded)})，"
                         f"分数={trade_score:.2f}，需价格回调后买入"
                     )
                     logger.warning(f"⚠️ {symbol}: {message}")
