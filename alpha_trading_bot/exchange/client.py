@@ -727,12 +727,35 @@ class ExchangeClient:
             if need_fetch:
                 # 3. 从交易所获取数据
                 if force_full_fetch or not local_klines:
-                    # 全量获取完整历史数据
-                    ohlcv = await self.exchange.fetch_ohlcv(
-                        symbol, timeframe, limit=limit
-                    )
+                    # 分批获取完整历史数据（OKX 单次最多 300 根）
+                    all_klines = []
+                    remaining = limit
+                    since = None  # 从最新往历史获取
+
+                    while remaining > 0 and len(all_klines) < limit:
+                        request_count = min(remaining, MAX_PER_REQUEST)
+                        batch = await self.exchange.fetch_ohlcv(
+                            symbol, timeframe, limit=request_count, since=since
+                        )
+
+                        if not batch:
+                            break
+
+                        all_klines.extend(batch)
+                        remaining -= len(batch)
+
+                        # 更新 since 为下一批请求的时间戳（往历史方向）
+                        since = batch[0][0] - 1
+
+                        logger.info(
+                            f"📥 分批获取历史 K 线: 已获取 {len(all_klines)} 根, 还需 {remaining} 根"
+                        )
+
+                        await asyncio.sleep(0.1)
+
+                    ohlcv = all_klines
                     if ohlcv:
-                        logger.info(f"📥 全量获取: {len(ohlcv)} 根 K 线数据")
+                        logger.info(f"📥 全量获取完成: {len(ohlcv)} 根 K 线数据")
                 else:
                     # 增量获取：先获取少量最新K线，找到新数据的起始点
                     recent_klines = await self.exchange.fetch_ohlcv(
