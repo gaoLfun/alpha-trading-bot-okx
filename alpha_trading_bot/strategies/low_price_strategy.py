@@ -91,10 +91,38 @@ class LowPriceStrategy:
         """应用极低位策略（<15%）"""
         enhanced = signal.copy()
 
-        # 检查是否处于强势下跌趋势
+        # 🔥 核心修改：极低位 + 超卖时，忽略趋势限制，尝试买入
+        price_position = market_data.get("composite_price_position", 50.0)
+        technical_data = market_data.get("technical_data", {})
+        rsi = technical_data.get("rsi", 50)
         trend_strength = market_data.get("trend_strength", 0.0)
         is_strong_downtrend = trend_strength < -0.3
 
+        # 极低位 + 超卖 + 趋势限制 = 忽略趋势限制，尝试买入
+        if price_position < 15 and rsi < 30 and is_strong_downtrend:
+            logger.info(
+                f"🎯 极低位({price_position:.1f}%) + 超卖(RSI={rsi:.1f})，忽略趋势限制，尝试买入"
+            )
+            # 强制买入信号
+            if signal.get("signal") == "HOLD" and self._check_buy_conditions(
+                market_data
+            ):
+                enhanced["signal"] = "BUY"
+                enhanced["confidence"] = min(1.0, signal.get("confidence", 0.5) * 1.5)
+                enhanced["reason"] = (
+                    f"🚀 极低位反弹信号（{price_position:.1f}%，RSI={rsi:.1f}）- {signal.get('reason', '')}"
+                )
+                logger.info(
+                    f"✅ 在极低位+超卖情况下发出BUY信号，信心度: {enhanced['confidence']:.2f}"
+                )
+            elif signal.get("signal") == "BUY":
+                enhanced["confidence"] = min(1.0, signal.get("confidence", 0.5) * 1.3)
+                enhanced["reason"] = (
+                    f"🔥 极低位强化买入（{price_position:.1f}%，RSI={rsi:.1f}）- {signal.get('reason', '')}"
+                )
+            return enhanced
+
+        # 原有的趋势限制逻辑（保持不变）
         if is_strong_downtrend:
             # 强势下跌趋势中，即使价格位置极低也不强制买入
             logger.warning(
@@ -127,10 +155,38 @@ class LowPriceStrategy:
         """应用低位策略（15-25%）"""
         enhanced = signal.copy()
 
-        # 检查是否处于强势下跌趋势
+        # 🔥 核心修改：低位 + 较强超卖时，忽略趋势限制，尝试买入
+        price_position = market_data.get("composite_price_position", 50.0)
+        technical_data = market_data.get("technical_data", {})
+        rsi = technical_data.get("rsi", 50)
         trend_strength = market_data.get("trend_strength", 0.0)
         is_strong_downtrend = trend_strength < -0.3
 
+        # 低位 + 较强超卖(RSI<35) + 趋势限制 = 忽略趋势限制，尝试买入
+        if price_position < 25 and rsi < 35 and is_strong_downtrend:
+            logger.info(
+                f"🎯 低位({price_position:.1f}%) + 较强超卖(RSI={rsi:.1f})，忽略趋势限制，尝试买入"
+            )
+            # 强制买入信号
+            if signal.get("signal") == "HOLD" and self._check_buy_conditions(
+                market_data
+            ):
+                enhanced["signal"] = "BUY"
+                enhanced["confidence"] = min(1.0, signal.get("confidence", 0.5) * 1.3)
+                enhanced["reason"] = (
+                    f"📈 低位买入信号（{price_position:.1f}%，RSI={rsi:.1f}）- {signal.get('reason', '')}"
+                )
+                logger.info(
+                    f"✅ 在低位+较强超卖情况下发出BUY信号，信心度: {enhanced['confidence']:.2f}"
+                )
+            elif signal.get("signal") == "BUY":
+                enhanced["confidence"] = min(1.0, signal.get("confidence", 0.5) * 1.2)
+                enhanced["reason"] = (
+                    f"💪 低位增强买入（{price_position:.1f}%，RSI={rsi:.1f}）- {signal.get('reason', '')}"
+                )
+            return enhanced
+
+        # 原有的趋势限制逻辑（保持不变）
         if is_strong_downtrend:
             # 强势下跌趋势中，即使价格位置较低也不强制买入
             logger.warning(

@@ -477,15 +477,29 @@ class StrategyManager(BaseComponent):
 
             if signal.get("action") == "buy" or signal.get("side") == "long":
                 if is_strong_bearish:
-                    return (
-                        False,
-                        f"趋势限制：强势下跌趋势禁止买入",
+                    # 🔥 新增：检查是否形成局部底部形态
+                    is_local_bottom, bottom_reason = self._check_local_bottom_pattern(
+                        market_data
                     )
+                    if is_local_bottom:
+                        logger.info(
+                            f"🎯 检测到局部底部形态，跳过趋势限制，允许买入 - {bottom_reason}"
+                        )
+                        # 允许买入，但记录日志
+                    else:
+                        return (
+                            False,
+                            f"趋势限制：强势下跌趋势禁止买入",
+                        )
 
             # 新增3：反转信号确认 - 在下跌趋势中需要更严格的技术指标
             if signal.get("action") == "buy" or signal.get("side") == "long":
                 if self._requires_reversal_confirmation(market_data):
-                    if not self._has_reversal_signals(market_data):
+                    # 🔥 新增：局部底部时可以跳过反转信号要求
+                    is_local_bottom, _ = self._check_local_bottom_pattern(market_data)
+                    if is_local_bottom:
+                        logger.info(f"🎯 局部底部形态已确认，跳过反转信号要求")
+                    elif not self._has_reversal_signals(market_data):
                         logger.warning(f"反转信号不足：下跌趋势中缺少明确的反弹信号")
                         return (
                             False,
@@ -617,6 +631,63 @@ class StrategyManager(BaseComponent):
         except Exception as e:
             logger.error(f"反转信号检查失败: {e}")
             return False
+
+    def _check_local_bottom_pattern(
+        self, market_data: Dict[str, Any]
+    ) -> tuple[bool, str]:
+        """
+        检查是否形成局部底部形态
+
+        当价格处于极低位+超卖，且价格不再创新低时，判定为局部底部
+
+        Returns:
+            (是否形成局部底部, 原因说明)
+        """
+        try:
+            price_position = market_data.get("composite_price_position", 50.0)
+            technical_data = market_data.get("technical_data", {})
+            rsi = technical_data.get("rsi", 50)
+            close_prices = market_data.get("close_prices", [])
+            current_price = market_data.get("price", 0)
+
+            # 条件1: 价格处于极低位（<15%）
+            if price_position >= 15:
+                return False, f"价格位置{price_position:.1f}%未达极低位"
+
+            # 条件2: RSI超卖（<30）
+            if rsi >= 30:
+                return False, f"RSI={rsi:.1f}未达超卖标准"
+
+            # 条件3: 价格不再创新低（最近3根K线）
+            if len(close_prices) >= 3:
+                recent_low = min(close_prices[-3:])
+                if current_price >= recent_low:
+                    logger.info(
+                        f"🎯 局部底部形态确认 - "
+                        f"价格位置{price_position:.1f}%, "
+                        f"RSI={rsi:.1f}, "
+                        f"当前价{current_price:.2f}, "
+                        f"近期最低{recent_low:.2f}"
+                    )
+                    return (
+                        True,
+                        f"局部底部形成（当前价{current_price:.0f}，近期最低{recent_low:.0f}）",
+                    )
+
+            # 条件4: 价格接近布林带下轨但未创新低
+            bb_position = market_data.get("bb_position", 50)
+            if bb_position < 20 and len(close_prices) >= 2:
+                if current_price >= close_prices[-2]:
+                    logger.info(
+                        f"🎯 局部底部形态确认 - 布林带位置{bb_position:.1f}%，价格初步回升"
+                    )
+                    return True, f"布林带底部区域，价格止跌回升"
+
+            return False, "价格仍在创新低或条件不满足"
+
+        except Exception as e:
+            logger.error(f"局部底部形态检测失败: {e}")
+            return False, f"检测失败: {e}"
 
     async def _check_allow_short_selling(self) -> bool:
         """检查是否允许做空"""
