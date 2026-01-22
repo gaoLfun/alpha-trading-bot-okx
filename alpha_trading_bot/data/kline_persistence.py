@@ -206,6 +206,8 @@ class KLinePersistenceManager:
             # 写入文件
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(file_data, f, indent=2, ensure_ascii=False)
+                f.flush()  # 确保写入同步
+                os.fsync(f.fileno())  # 强制刷新到磁盘
 
             # 清理内存缓存
             cache_key = f"{symbol}:{timeframe}"
