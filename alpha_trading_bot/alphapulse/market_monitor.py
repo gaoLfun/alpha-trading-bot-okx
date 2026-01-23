@@ -686,12 +686,13 @@ class MarketMonitor:
                     should_trade = False
                     # 找出不符合条件的参数
                     exceeded = []
-                    if bb_position >= 50:
-                        exceeded.append(f"BB={bb_position:.1f}% > 50%")
-                    if price_position_24h >= 50:
-                        exceeded.append(f"24h={price_position_24h:.1f}% > 50%")
-                    if price_position_7d >= 40:
-                        exceeded.append(f"7d={price_position_7d:.1f}% > 40%")
+                    # 优化价格位置限制 - 放宽拦截阈值以捕获更多反弹机会
+                    if bb_position >= 70:
+                        exceeded.append(f"BB={bb_position:.1f}% > 70%")
+                    if price_position_24h >= 65:
+                        exceeded.append(f"24h={price_position_24h:.1f}% > 65%")
+                    if price_position_7d >= 55:
+                        exceeded.append(f"7d={price_position_7d:.1f}% > 55%")
                     message = (
                         f"BUY信号被拦截: 价格位置偏高 ({', '.join(exceeded)})，"
                         f"分数={trade_score:.2f}，需价格回调后买入"
