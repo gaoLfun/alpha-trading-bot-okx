@@ -319,7 +319,7 @@ class ConfigManager:
             cache_duration=int(os.getenv("AI_CACHE_DURATION", "900")),
             timeout=int(os.getenv("AI_TIMEOUT", "30")),
             max_retries=int(os.getenv("AI_MAX_RETRIES", "2")),
-            min_confidence_threshold=float(os.getenv("AI_MIN_CONFIDENCE", "0.3")),
+            min_confidence_threshold=float(os.getenv("AI_MIN_CONFIDENCE", "0.5")),
             ai_provider=os.getenv(
                 "AI_DEFAULT_PROVIDER", "deepseek"
             ),  # 使用新的AI_DEFAULT_PROVIDER

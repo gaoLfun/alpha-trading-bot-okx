@@ -1868,51 +1868,101 @@ class TradingBot(BaseComponent):
                         )
                     else:
                         self.enhanced_logger.logger.info(
-                            f"💤 AlphaPulse 无有效信号 [预热中: 剩余{int(remaining_seconds // 60)}分{remaining_seconds % 60}秒]"
-                        )
-                    await self._update_cycle_status(cycle_num, start_time, 0, 0)
-                    return
+                             f"💤 AlphaPulse 无有效信号 [预热中: 剩余{int(remaining_seconds // 60)}分{remaining_seconds % 60}秒]"
+                         )
+                     await self._update_cycle_status(cycle_num, start_time, 0, 0)
+                     return
 
-                if (
-                    config.enabled
-                    and alphapulse_signal
-                    and alphapulse_signal.signal_type in ["buy", "sell"]
-                ):
-                    # AlphaPulse 产生信号，调用 AI 验证
-                    self.enhanced_logger.logger.info(
-                        f"🎯 AlphaPulse 检测到 {alphapulse_signal.signal_type.upper()} 信号，调用 AI 验证..."
-                    )
+                 if (
+                     config.enabled
+                     and alphapulse_signal
+                     and alphapulse_signal.signal_type in ["buy", "sell"]
+                 ):
+                     # 第一阶段优化：AlphaPulse快速通道 - 强信号直接执行
+                     should_use_fast_channel = False
+                     fast_channel_reason = ""
+                     
+                     # 快速通道条件：高置信度 + 合理价格位置
+                     if alphapulse_signal.confidence >= 0.8:  # 高置信度信号
+                         price_position = market_data.get("price_position_24h", 0.5)
+                         composite_position = market_data.get("composite_price_position", price_position)
+                         
+                         # 低位或适中位置的强信号可以直接执行
+                         if composite_position <= 0.6:  # 不是极高位置
+                             should_use_fast_channel = True
+                             fast_channel_reason = f"强信号({alphapulse_signal.confidence:.2f})+合理位置({composite_position:.1%})"
+                             self.enhanced_logger.logger.info(
+                                 f"🚀 AlphaPulse快速通道：{alphapulse_signal.signal_type.upper()}信号直接执行 - {fast_channel_reason}"
+                             )
+                     
+                     if should_use_fast_channel:
+                         # 快速通道：直接使用AlphaPulse信号，跳过AI验证
+                         use_alphapulse_signal = True
+                         verification_result = {
+                             "verified": True,
+                             "direction": "confirm", 
+                             "confidence": alphapulse_signal.confidence,
+                             "reason": f"AlphaPulse快速通道：{fast_channel_reason}",
+                         }
+                     else:
+                         # AlphaPulse 产生信号，调用 AI 验证
+                         self.enhanced_logger.logger.info(
+                             f"🎯 AlphaPulse 检测到 {alphapulse_signal.signal_type.upper()} 信号，调用 AI 验证..."
+                         )
 
-                    # 🔥 关键修复：在 AI 验证前，将 AlphaPulse 的指标数据放入 market_data
-                    # 这样 AI 验证时就能获取到与 AlphaPulse 相同的实时指标
-                    indicator_data = alphapulse_signal.market_data.get("indicators")
-                    if indicator_data:
-                        market_data["alphapulse_signal"] = {
-                            "signal_type": alphapulse_signal.signal_type,
-                            "confidence": alphapulse_signal.confidence,
-                            "reasoning": alphapulse_signal.reasoning,
-                            "indicator_result": {
-                                "rsi": indicator_data.rsi,
-                                "macd": indicator_data.macd_histogram,  # 🔥 修复：传递柱状图值而非快线值
-                                "adx": indicator_data.adx,
-                                "bb_position": indicator_data.bb_position,
-                                "atr_percent": indicator_data.atr_percent,
-                                "price_position_24h": indicator_data.price_position_24h,
-                                "price_position_7d": indicator_data.price_position_7d,
-                            },
-                        }
-                        self.enhanced_logger.logger.info(
-                            f"🎯 已将 AlphaPulse 实时指标传递给 AI 验证: "
-                            f"RSI={indicator_data.rsi:.1f}, MACD={indicator_data.macd_histogram:.4f}, "
-                            f"ADX={indicator_data.adx:.1f}, BB位置={indicator_data.bb_position:.1f}%"
-                        )
-                    else:
-                        self.enhanced_logger.logger.warning(
-                            f"⚠️ AlphaPulse 信号中未包含指标数据，AI 验证可能使用旧数据"
-                        )
+                     # 第一阶段优化：AlphaPulse快速通道 - 强信号直接执行
+                     should_use_fast_channel = False
+                     fast_channel_reason = ""
+                     
+                     # 快速通道条件：高置信度 + 合理价格位置
+                     if alphapulse_signal.confidence >= 0.8:  # 高置信度信号
+                         price_position = market_data.get("price_position_24h", 0.5)
+                         composite_position = market_data.get("composite_price_position", price_position)
+                         
+                         # 低位或适中位置的强信号可以直接执行
+                         if composite_position <= 0.6:  # 不是极高位置
+                             should_use_fast_channel = True
+                             fast_channel_reason = f"强信号({alphapulse_signal.confidence:.2f})+合理位置({composite_position:.1%})"
+                             self.enhanced_logger.logger.info(
+                                 f"🚀 AlphaPulse快速通道：{alphapulse_signal.signal_type.upper()}信号直接执行 - {fast_channel_reason}"
+                             )
+                     
+                     if should_use_fast_channel:
+                         # 快速通道：直接使用AlphaPulse信号，跳过AI验证
+                         use_alphapulse_signal = True
+                         verification_result = {
+                             "verified": True,
+                             "direction": "confirm", 
+                             "confidence": alphapulse_signal.confidence,
+                             "reason": f"AlphaPulse快速通道：{fast_channel_reason}",
+                         }
+                     else:
+                         # 🔥 关键修复：在 AI 验证前，将 AlphaPulse 的指标数据放入 market_data
+                         # 这样 AI 验证时就能获取到与 AlphaPulse 相同的实时指标
+                         if alphapulse_signal.execution_params:
+                             market_data["alphapulse_indicators"] = {
+                                 "rsi": alphapulse_signal.execution_params.get("rsi"),
+                                 "macd": alphapulse_signal.execution_params.get("macd"),
+                                 "adx": alphapulse_signal.execution_params.get("adx"),
+                                 "bb_position": alphapulse_signal.execution_params.get("bb_position"),
+                                 "atr_percent": alphapulse_signal.execution_params.get("atr_percent"),
+                                 "composite_position": alphapulse_signal.execution_params.get("composite_position"),
+                             }
+                             self.enhanced_logger.logger.info(
+                                 f"🎯 已将 AlphaPulse 实时指标传递给 AI 验证: "
+                                 f"RSI={alphapulse_signal.execution_params.get('rsi')}, "
+                                 f"MACD={alphapulse_signal.execution_params.get('macd')}, "
+                                 f"ADX={alphapulse_signal.execution_params.get('adx')}, "
+                                 f"BB位置={alphapulse_signal.execution_params.get('bb_position')}%, "
+                                 f"ATR%={alphapulse_signal.execution_params.get('atr_percent', 0):.2f}%"
+                             )
+                         else:
+                             self.enhanced_logger.logger.warning(
+                                 f"⚠️ AlphaPulse 信号中未包含指标数据，AI 验证可能使用旧数据"
+                             )
 
-                    # AI 验证 AlphaPulse 信号
-                    verification_result = await self.ai_manager.verify_signal(
+                         # AI 验证 AlphaPulse 信号
+                         verification_result = await self.ai_manager.verify_signal(
                         signal_type=alphapulse_signal.signal_type,
                         symbol=alphapulse_signal.symbol,
                         confidence=alphapulse_signal.confidence,
@@ -1920,27 +1970,27 @@ class TradingBot(BaseComponent):
                         market_data=market_data,
                     )
 
-                    # 比对决策
-                    if verification_result["direction"] == "confirm":
-                        # AI 确认，执行 AlphaPulse 信号
-                        use_alphapulse_signal = True
-                        self.enhanced_logger.logger.info(
-                            f"✅ AI 验证通过：确认 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号"
-                        )
-                    elif verification_result["direction"] == "reverse":
-                        # AI 建议反向，不执行，跳过整个周期
-                        self.enhanced_logger.logger.warning(
-                            f"⚠️ AI 建议反向：AlphaPulse {alphapulse_signal.signal_type.upper()} → 忽略信号，跳过交易周期"
-                        )
-                        await self._update_cycle_status(cycle_num, start_time, 0, 0)
-                        return
-                    else:
-                        # AI 拒绝，不执行，跳过整个周期
-                        self.enhanced_logger.logger.warning(
-                            f"⚠️ AI 验证拒绝：忽略 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号，跳过交易周期"
-                        )
-                        await self._update_cycle_status(cycle_num, start_time, 0, 0)
-                        return
+                         # 比对决策
+                     if verification_result["direction"] == "confirm":
+                         # AI确认，执行 AlphaPulse 信号
+                         use_alphapulse_signal = True
+                         self.enhanced_logger.logger.info(
+                             f"✅ {'快速通道' if should_use_fast_channel else 'AI验证通过'}：确认 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号"
+                         )
+                     elif verification_result["direction"] == "reverse":
+                         # AI 建议反向，不执行，跳过整个周期
+                         self.enhanced_logger.logger.warning(
+                             f"⚠️ AI 建议反向：AlphaPulse {alphapulse_signal.signal_type.upper()} → 忽略信号，跳过交易周期"
+                         )
+                         await self._update_cycle_status(cycle_num, start_time, 0, 0)
+                         return
+                     else:
+                         # AI 拒绝，不执行，跳过整个周期
+                         self.enhanced_logger.logger.warning(
+                             f"⚠️ {'AI验证拒绝' if not should_use_fast_channel else '快速通道关闭'}：忽略 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号，跳过交易周期"
+                         )
+                         await self._update_cycle_status(cycle_num, start_time, 0, 0)
+                         return
 
                     if use_alphapulse_signal:
                         # 更新最后检查时间
@@ -2003,9 +2053,9 @@ class TradingBot(BaseComponent):
                 # AI 验证通过，使用 AlphaPulse 信号
                 signals = alphapulse_signals
                 total_signals = len(signals)
-                self.enhanced_logger.logger.info(
-                    f"🎯 使用 AlphaPulse + AI 验证通过的信号执行交易"
-                )
+                         self.enhanced_logger.logger.info(
+                             f"🎯 使用{'AlphaPulse快速通道' if should_use_fast_channel else 'AlphaPulse + AI验证'}的信号执行交易"
+                         )
             else:
                 # 正常流程：生成AI和策略信号
                 signals, total_signals = await self._generate_trading_signals(

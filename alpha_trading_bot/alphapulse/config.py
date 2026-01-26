@@ -39,7 +39,11 @@ class AlphaPulseConfig:
     sell_threshold: float = field(default=0.50)
     """SELL信号触发阈值 (0.0-1.0)"""
 
-    min_ai_confidence: float = field(default=0.70)
+    min_ai_confidence: float = field(default=0.50)
+
+    # 快速通道配置
+    fast_track_enabled: bool = field(default=True)  # 启用快速通道
+    fast_track_confidence_threshold: float = field(default=0.8)  # 快速通道置信度阈值
     """AI最小置信度"""
 
     cooldown_minutes: int = field(default=15)
@@ -105,7 +109,15 @@ class AlphaPulseConfig:
         # 触发阈值
         buy_threshold = float(os.getenv("ALPHA_PULSE_BUY_THRESHOLD", "0.65"))
         sell_threshold = float(os.getenv("ALPHA_PULSE_SELL_THRESHOLD", "0.65"))
-        min_confidence = float(os.getenv("ALPHA_PULSE_MIN_CONFIDENCE", "0.70"))
+        min_confidence = float(os.getenv("ALPHA_PULSE_MIN_CONFIDENCE", "0.50"))
+
+        # 快速通道配置
+        fast_track_enabled = (
+            os.getenv("ALPHA_PULSE_FAST_TRACK_ENABLED", "true").lower() == "true"
+        )
+        fast_track_threshold = float(
+            os.getenv("ALPHA_PULSE_FAST_TRACK_CONFIDENCE", "0.8")
+        )
         cooldown = int(os.getenv("ALPHA_PULSE_COOLDOWN_MINUTES", "15"))
 
         # 后备模式
@@ -151,6 +163,8 @@ class AlphaPulseConfig:
             symbols=symbols,
             max_ohlcv_bars=max_ohlcv,
             max_indicator_history=max_indicator,
+            fast_track_enabled=fast_track_enabled,
+            fast_track_confidence_threshold=fast_track_threshold,
         )
 
     def get_indicator_params(self) -> dict:

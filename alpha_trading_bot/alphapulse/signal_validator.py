@@ -164,7 +164,7 @@ class SignalValidator:
 
         # 最终验证
         passed = (
-            final_confidence >= 0.5 and trend_score >= 0.3 and base_threshold_passed
+            final_confidence >= 0.5 and trend_score >= 0.25 and base_threshold_passed
         )
 
         if passed:
@@ -350,25 +350,46 @@ class SignalValidator:
 
         return "\n".join(parts)
 
-    def should_use_ai(self, validation_result: ValidationResult) -> bool:
-        """
-        判断是否需要使用AI验证
 
-        Args:
-            validation_result: 验证结果
+def should_use_ai(self, validation_result: ValidationResult) -> bool:
+    """
+    判断是否需要使用AI验证
 
-        Returns:
-            是否需要AI验证
-        """
-        if not self.config.use_ai_validation:
-            return False
+    Args:
+        validation_result: 验证结果
 
-        # 中等置信度时使用AI验证
-        if 0.5 <= validation_result.confidence < self.config.min_ai_confidence:
-            return True
-
-        # 有警告时使用AI验证
-        if len(validation_result.warnings) > 0:
-            return True
-
+    Returns:
+        是否需要AI验证
+    """
+    if not self.config.use_ai_validation:
         return False
+
+    # 快速通道：高置信度信号跳过AI验证
+    if (
+        self.config.fast_track_enabled
+        and validation_result.confidence >= self.config.fast_track_confidence_threshold
+    ):
+        self.logger.info(
+            f"🚀 快速通道：置信度 {validation_result.confidence:.2f} >= {self.config.fast_track_confidence_threshold}，跳过AI验证"
+        )
+        return False
+
+    # 中等置信度时使用AI验证
+    if 0.4 <= validation_result.confidence < self.config.min_ai_confidence:
+        return True
+
+    # 有警告时使用AI验证
+    if len(validation_result.warnings) > 0:
+        return True
+
+    return False
+
+    # 降低AI验证门槛
+    if 0.4 <= validation_result.confidence < self.config.min_ai_confidence:
+        return True
+
+    # 有警告时使用AI验证
+    if len(validation_result.warnings) > 0:
+        return True
+
+    return False

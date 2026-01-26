@@ -154,7 +154,7 @@ class AIConfig:
     cache_duration: int = 900
     timeout: int = 30
     max_retries: int = 2
-    min_confidence_threshold: float = 0.3
+    min_confidence_threshold: float = 0.5
     ai_provider: str = "kimi"
     fallback_enabled: bool = True
     # AI模型配置

@@ -236,11 +236,13 @@ class StrategyManager(BaseComponent):
                 cycle_minutes = config.trading.cycle_minutes
 
                 current_minute = datetime.now().minute
-                if current_minute % cycle_minutes <= 5:  # 新周期刚开始5分钟内
+                if (
+                    current_minute % cycle_minutes <= 10
+                ):  # 新周期刚开始10分钟内，延长初期时间
                     logger.info(
                         f"当前处于新{cycle_minutes}分钟周期初期，成交量为0属于正常现象"
                     )
-                    return 60  # 给予中等评分，避免过度敏感
+                    return 70  # 给予较高评分，更宽松的初期处理
                 else:
                     logger.warning(f"当前成交量为0且不在新{cycle_minutes}分钟周期初期")
                     return 0
@@ -252,12 +254,12 @@ class StrategyManager(BaseComponent):
             volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
 
             # 根据价格调整最小成交量要求（更宽松的阈值）
-            min_volume_threshold = max(0.01, price * 0.00005)  # 降低阈值要求
+            min_volume_threshold = max(0.005, price * 0.00003)  # 进一步降低阈值要求
 
             if current_volume < min_volume_threshold:
-                return 30  # 降低评分但不直接拒绝
-            elif volume_ratio < 0.05:  # 放宽比例要求
-                return 40
+                return 40  # 提高评分，更加宽松
+            elif volume_ratio < 0.02:  # 大幅放宽比例要求
+                return 50
             elif volume_ratio < 0.2:
                 return 60
             elif volume_ratio < 0.5:
@@ -535,18 +537,21 @@ class StrategyManager(BaseComponent):
                         f"估算成交量评分: {volume_score:.1f} (比例: {volume_ratio:.2f})"
                     )
 
-            # 如果仍然为0，检查是否是新周期刚开始
+            # 如果仍然为0，检查是否是新周期刚开始 - 第一阶段优化：放宽初期成交量要求
             if volume_score == 0:
                 current_minute = datetime.now().minute
-                if current_minute % 15 <= 2:
-                    volume_score = 40  # 新周期给予基础评分
-                    logger.info("新周期刚开始，成交量评分设为40")
+                if current_minute % 15 <= 5:  # 扩展新周期容忍时间从2分钟到5分钟
+                    volume_score = 45  # 提高新周期基础评分从40到45
+                    logger.info("新周期初期，成交量评分设为45（优化放宽）")
                 elif market_data.get("avg_volume_24h", 0) > 0:
-                    volume_score = 35  # 基于历史数据给予基础评分
-                    logger.info(f"有历史成交量数据，成交量评分设为35")
+                    volume_score = 40  # 提高历史数据基础评分从35到40
+                    logger.info(f"有历史成交量数据，成交量评分设为40（优化放宽）")
 
-            if volume_score < 30:
-                logger.warning(f"成交量评分过低({volume_score:.1f} < 30)，禁止交易")
+            # 第一阶段优化：降低成交量评分阈值从30到20
+            if volume_score < 20:
+                logger.warning(
+                    f"成交量评分过低({volume_score:.1f} < 20)，禁止交易（优化后阈值）"
+                )
                 return False, f"成交量不足：评分{volume_score:.1f}"
 
             # 检查交易频率

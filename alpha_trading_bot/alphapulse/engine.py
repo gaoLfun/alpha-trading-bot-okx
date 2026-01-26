@@ -226,13 +226,29 @@ class AlphaPulseEngine:
             )
 
             if not validation.passed:
-                self.logger.info(
-                    f"❌ {target_symbol} 信号验证未通过: {validation.final_message}"
+                # 强信号快速通道：高置信度信号直接执行
+                if signal_result.confidence >= 0.8:
+                    self.logger.warning(
+                        f"🚀 强信号快速通道: {target_symbol} 信号验证未通过但置信度高，直接执行"
+                    )
+                    # 直接创建交易信号，跳过AI验证
+                    trading_signal = await self._create_trading_signal(
+                        target_symbol, signal_result, validation, None, market_summary
+                    )
+                    if self.trade_executor and trading_signal.signal_type in [
+                        "buy",
+                        "sell",
+                    ]:
+                        await self._execute_trade(trading_signal)
+                    return trading_signal
+                else:
+                    self.logger.info(
+                        f"❌ {target_symbol} 信号验证未通过: {validation.final_message}"
+                    )
+self.logger.info(
+                    f"   详细: {validation.final_message}"
                 )
-                self.logger.info(
-                    f"   详细: RSI={validation.rsi_ok}, 趋势={validation.trend_ok}, 波动率={validation.volatility_ok}"
-                )
-                return None
+                    return None
 
             self.logger.info(f"✅ {target_symbol} 信号验证通过!")
 
@@ -318,9 +334,7 @@ class AlphaPulseEngine:
                 self.logger.info(
                     f"❌ {target_symbol} 信号验证未通过: {validation.final_message}"
                 )
-                self.logger.info(
-                    f"   详细: RSI={validation.rsi_ok}, 趋势={validation.trend_ok}, 波动率={validation.volatility_ok}"
-                )
+                self.logger.info(f"   详细: {validation.final_message}")
                 return None
 
             self.logger.info(f"✅ {target_symbol} 信号验证通过!")
