@@ -191,9 +191,15 @@ class MarketMonitor:
         },
     }
 
-    # 信号阈值配置 - 方案A: 降低阈值以扩大 AI 核验范围
-    BUY_THRESHOLD = 0.20  # 分数 >= 0.2 → BUY (原 0.30，降低 33%)
-    SELL_THRESHOLD = -0.20  # 分数 <= -0.2 → SELL (原 -0.30，降低 33%)
+    # 信号阈值配置 - 优化后: 提高阈值以减少误判，同时保留小范围波动检测
+    BUY_THRESHOLD = 0.35  # 分数 >= 0.35 → BUY (原0.20，提高75%以减少误拒绝)
+    SELL_THRESHOLD = -0.35  # 分数 <= -0.35 → SELL (原-0.35，保持对称)
+
+    # 小范围波动检测配置 - 新增：增强对小波动的敏感度
+    SMALL_FLUCTUATION_ENABLED = True  # 启用小范围波动检测
+    SMALL_FLUCTUATION_THRESHOLD = 0.08  # 小波动阈值：0.08-0.15之间视为小波动
+    MICRO_TREND_PERIOD = 5  # 微趋势检测周期（根K线）
+    MICRO_CHANGE_THRESHOLD = 0.003  # 微小变化阈值：0.3%
 
     def __init__(
         self,
@@ -908,6 +914,15 @@ class MarketMonitor:
         # 运行超卖反弹检测（作为第二信号源）
         rebound_result = self.oversold_detector.check_rebound(result, prev_result)
 
+        # 运行小范围波动检测 - 新增
+        small_fluctuation_result = self._detect_small_fluctuation(result, prev_result)
+        if small_fluctuation_result.get("is_small_fluctuation"):
+            # 小波动时给予分数加成/扣分
+            score_boost = small_fluctuation_result.get("score_boost", 0.0)
+            score += score_boost
+            details["小波动加成"] = score_boost
+            details["小波动原因"] = small_fluctuation_result.get("reason", "")
+
         # 记录超卖区域信息
         if is_oversold_area:
             details["is_oversold_area"] = True
@@ -919,6 +934,126 @@ class MarketMonitor:
             details["is_oversold_area"] = False
 
         return score, triggers, details, rebound_result
+
+    def _detect_small_fluctuation(
+        self,
+        result: TechnicalIndicatorResult,
+        prev_result: Optional[TechnicalIndicatorResult] = None,
+    ) -> Dict[str, Any]:
+        """
+        检测小范围波动 - 专门针对微涨微跌的敏感检测
+
+        Args:
+            result: 当前技术指标结果
+            prev_result: 上一根K线的指标结果
+
+        Returns:
+            Dict: 小波动检测结果
+        """
+        if not self.SMALL_FLUCTUATION_ENABLED:
+            return {"enabled": False}
+
+        detection_result = {
+            "enabled": True,
+            "is_small_fluctuation": False,
+            "micro_trend": "neutral",
+            "micro_change_pct": 0.0,
+            "accumulated_change": 0.0,
+            "score_boost": 0.0,
+            "reason": "",
+        }
+
+        try:
+            # 如果没有历史数据，无法检测小波动
+            if prev_result is None:
+                detection_result["reason"] = "无历史数据"
+                return detection_result
+
+            # 计算微小价格变化
+            current_price = result.current_price
+            prev_price = prev_result.current_price
+            price_change = (current_price - prev_price) / prev_price
+            detection_result["micro_change_pct"] = price_change
+
+            # 判断是否小范围波动
+            abs_change = abs(price_change)
+            if abs_change < self.SMALL_FLUCTUATION_THRESHOLD:
+                detection_result["is_small_fluctuation"] = True
+
+                # 判断微趋势方向
+                if price_change > self.MICRO_CHANGE_THRESHOLD:
+                    detection_result["micro_trend"] = "up"
+                    detection_result["reason"] = f"微涨 {price_change * 100:.2f}%"
+                elif price_change < -self.MICRO_CHANGE_THRESHOLD:
+                    detection_result["micro_trend"] = "down"
+                    detection_result["reason"] = f"微跌 {price_change * 100:.2f}%"
+                else:
+                    detection_result["micro_trend"] = "neutral"
+                    detection_result["reason"] = f"横盘 {price_change * 100:.2f}%"
+
+                # 小波动时增加信号敏感度
+                # 累计变化检测：连续小涨或小跌
+                accumulated_change = self._get_accumulated_change(result)
+                detection_result["accumulated_change"] = accumulated_change
+
+                # 如果连续同向小波动，给予分数加成
+                if detection_result["micro_trend"] == "up" and accumulated_change > 0:
+                    # 连续小涨趋势，给予正向加成
+                    boost = min(0.08, accumulated_change * 0.5)
+                    detection_result["score_boost"] = boost
+                    detection_result["reason"] += (
+                        f" | 累计涨 {accumulated_change * 100:.2f}%，加分{boost:.3f}"
+                    )
+                elif (
+                    detection_result["micro_trend"] == "down" and accumulated_change < 0
+                ):
+                    # 连续小跌趋势，给予负向加成
+                    boost = max(-0.08, accumulated_change * 0.5)
+                    detection_result["score_boost"] = boost
+                    detection_result["reason"] += (
+                        f" | 累计跌 {abs(accumulated_change) * 100:.2f}%，扣分{abs(boost):.3f}"
+                    )
+
+                logger.debug(
+                    f"🔍 小波动检测: {detection_result['reason']}, "
+                    f"score_boost={detection_result['score_boost']:.3f}"
+                )
+            else:
+                detection_result["reason"] = f"波动较大 {price_change * 100:.2f}%"
+
+        except Exception as e:
+            logger.warning(f"小波动检测失败: {e}")
+            detection_result["reason"] = f"检测异常: {e}"
+
+        return detection_result
+
+    def _get_accumulated_change(
+        self, result: TechnicalIndicatorResult, period: int = 5
+    ) -> float:
+        """
+        计算累计变化率
+
+        Args:
+            result: 当前技术指标结果
+            period: 计算周期
+
+        Returns:
+            float: 累计变化率
+        """
+        ohlcv_data = result.ohlcv_data
+        if ohlcv_data is None or len(ohlcv_data) < period:
+            return 0.0
+
+        try:
+            closes = [d[4] for d in ohlcv_data[-period:]]
+            if len(closes) >= 2:
+                first_price = closes[0]
+                last_price = closes[-1]
+                return (last_price - first_price) / first_price
+        except Exception:
+            pass
+
+        return 0.0
 
     async def get_latest_indicator(
         self, symbol: str

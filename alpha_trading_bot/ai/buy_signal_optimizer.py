@@ -15,81 +15,53 @@ class BuySignalOptimizer:
     """BUY信号专项优化器"""
 
     def __init__(self):
-        # BUY信号专项优化参数 - 基础配置（优化后：放宽限制，允许更多交易机会）
+        # BUY信号专项优化参数 - 基础配置（优化后：大幅放宽限制以减少误拒绝）
         self.base_optimizations = {
-            # 价格位置限制 - 放宽至90%
-            "max_price_position": 0.90,  # 0.85 -> 0.90
-            "min_price_position": 0.15,
-            # RSI限制 - 放宽至70
-            "max_rsi_for_buy": 70,  # 65 -> 70
-            "min_rsi_for_buy": 35,
-            # ATR波动率限制 - 降低最低阈值
-            "min_atr_for_buy": 0.10,  # 0.15 -> 0.10
-            "max_atr_for_buy": 3.0,
-            # 趋势要求 - 降低最低要求
-            "min_trend_strength": 0.15,  # 0.2 -> 0.15
-            "min_adx": 15,  # 20 -> 15
+            # 价格位置限制 - 大幅放宽至95%
+            "max_price_position": 0.95,  # 0.90 -> 0.95
+            "min_price_position": 0.10,
+            # RSI限制 - 放宽至75
+            "max_rsi_for_buy": 75,  # 70 -> 75
+            "min_rsi_for_buy": 30,
+            # ATR波动率限制 - 降低最低阈值至0.08%
+            "min_atr_for_buy": 0.08,  # 0.10 -> 0.08
+            "max_atr_for_buy": 4.0,
+            # 趋势要求 - 大幅降低最低要求
+            "min_trend_strength": 0.10,  # 0.15 -> 0.10
+            "min_adx": 12,  # 15 -> 12
             # 成交量要求 - 降低最低比例
-            "min_volume_ratio": 0.6,  # 0.8 -> 0.6
-            "max_volume_spike": 3.0,
+            "min_volume_ratio": 0.5,  # 0.6 -> 0.5
+            "max_volume_spike": 4.0,
             # 时间窗口限制
-            "avoid_last_hour": True,
-            "cooldown_minutes": 20,  # 30 -> 20
+            "avoid_last_hour": False,  # 放宽时间限制
+            "cooldown_minutes": 15,  # 30 -> 15
         }
 
-        # 分级风控配置 - 基于趋势强度动态调整（优化后：提高强制HOLD的阈值）
+        # 分级风控配置 - 基于趋势强度动态调整（优化后：大幅放宽各阈值）
         self.dynamic_thresholds = {
             "strong_trend": {  # 趋势强度 > 0.5
-                "max_price_position": 0.98,
-                "max_rsi_for_buy": 80,
-                "risk_factor_threshold": 5,  # 4 -> 5
+                "max_price_position": 0.98,  # 保持98%
+                "max_rsi_for_buy": 85,  # 80 -> 85
+                "risk_factor_threshold": 6,  # 5 -> 6，6个因素才强制HOLD
+                "price_position_weight": 0.3,  # 降低权重
+                "rsi_weight": 0.2,  # 降低权重
+                "trend_weight": 1.0,  # 降低趋势权重
+            },
+            "medium_trend": {  # 趋势强度 0.3-0.5
+                "max_price_position": 0.97,  # 0.95 -> 0.97
+                "max_rsi_for_buy": 80,  # 75 -> 80
+                "risk_factor_threshold": 5,  # 4 -> 5，5个因素才强制HOLD
                 "price_position_weight": 0.5,
                 "rsi_weight": 0.3,
-                "trend_weight": 1.5,
-            },
-            "medium_trend": {  # 趋势强度 0.3-0.5
-                "max_price_position": 0.95,  # 0.90 -> 0.95
-                "max_rsi_for_buy": 75,  # 70 -> 75
-                "risk_factor_threshold": 4,  # 3 -> 4
-                "price_position_weight": 0.7,
-                "rsi_weight": 0.5,
-                "trend_weight": 1.2,
-            },
-            "weak_trend": {  # 趋势强度 < 0.3
-                "max_price_position": 0.90,  # 0.85 -> 0.90
-                "max_rsi_for_buy": 70,  # 65 -> 70
-                "risk_factor_threshold": 4,  # 3 -> 4
-                "price_position_weight": 0.8,
-                "rsi_weight": 0.7,
                 "trend_weight": 0.8,
             },
-        }
-
-        # 分级风控配置 - 基于趋势强度动态调整（优化后：降低风险因素阈值）
-        self.dynamic_thresholds = {
-            "strong_trend": {  # 趋势强度 > 0.5
-                "max_price_position": 0.98,  # 放宽至98%
-                "max_rsi_for_buy": 80,  # 放宽至80
-                "risk_factor_threshold": 5,  # 原为4，5个因素才强制HOLD
-                "price_position_weight": 0.5,  # 降低权重
-                "rsi_weight": 0.3,  # 降低权重
-                "trend_weight": 1.5,  # 提高趋势权重
-            },
-            "medium_trend": {  # 趋势强度 0.3-0.5
-                "max_price_position": 0.95,  # 原为90%，放宽至95%
-                "max_rsi_for_buy": 75,  # 原为70，放宽至75
-                "risk_factor_threshold": 4,  # 原为3，4个因素才强制HOLD
-                "price_position_weight": 0.7,
-                "rsi_weight": 0.5,
-                "trend_weight": 1.2,
-            },
             "weak_trend": {  # 趋势强度 < 0.3
-                "max_price_position": 0.90,  # 原为85%，放宽至90%
-                "max_rsi_for_buy": 70,  # 原为65，放宽至70
-                "risk_factor_threshold": 4,  # 原为3，4个因素才强制HOLD
-                "price_position_weight": 0.8,  # 降低权重
-                "rsi_weight": 0.7,  # 降低权重
-                "trend_weight": 0.8,  # 降低趋势权重
+                "max_price_position": 0.95,  # 0.90 -> 0.95
+                "max_rsi_for_buy": 75,  # 70 -> 75
+                "risk_factor_threshold": 5,  # 4 -> 5，5个因素才强制HOLD
+                "price_position_weight": 0.6,
+                "rsi_weight": 0.5,
+                "trend_weight": 0.5,
             },
         }
 
@@ -181,10 +153,10 @@ class BuySignalOptimizer:
         return increases
 
     def _get_trend_level(self, trend_strength: float) -> str:
-        """根据趋势强度返回趋势级别"""
-        if trend_strength > 0.6:  # 0.5 -> 0.6 放宽阈值
+        """根据趋势强度返回趋势级别 - 优化后：大幅降低各级别阈值"""
+        if trend_strength > 0.5:  # 0.6 -> 0.5 降低阈值
             return "strong_trend"
-        elif trend_strength > 0.25:  # 0.3 -> 0.25 放宽阈值
+        elif trend_strength > 0.20:  # 0.25 -> 0.20 降低阈值
             return "medium_trend"
         else:
             return "weak_trend"

@@ -20,6 +20,7 @@ from ..models import (
 from .dynamic_stop_loss import DynamicStopLoss
 from .dynamic_position_sizing import DynamicPositionSizing
 from .transaction_cost_analyzer import TransactionCostAnalyzer
+from .order_execution import OrderExecutionMixin
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,8 @@ class TradeExecutorConfig(BaseConfig):
     min_profit_threshold: float = 0.002  # 最小盈利阈值（0.2%）
 
 
-class TradeExecutor(BaseComponent):
-    """交易执行器"""
+class TradeExecutor(OrderExecutionMixin, BaseComponent):
+    """交易执行器 - 继承订单执行混合类"""
 
     async def initialize(self) -> bool:
         """初始化交易执行器"""

@@ -1,11 +1,12 @@
 """
 高位预警保护模块
 在价格高峰期自动增强保护机制，防止追高买入
+优化后：大幅放宽限制以减少误拒绝，让更多合理的买入信号通过
 """
 
 import logging
-from typing import Dict, Any, Tuple, Optional
-from dataclasses import dataclass
+from typing import Dict, Any, Tuple, Optional, List
+from dataclasses import dataclass, field
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -22,30 +23,28 @@ class HighPriceLevel(Enum):
 
 @dataclass
 class HighPriceProtectionConfig:
-    """高位保护配置"""
+    """高位保护配置 - 优化后：大幅放宽限制以减少误拒绝"""
 
-    # 各级别的价格位置阈值
-    elevated_threshold: float = 0.70  # 70%
-    high_threshold: float = 0.85  # 85%
-    extreme_threshold: float = 0.95  # 95%
+    # 各级别的价格位置阈值 - 放宽
+    elevated_threshold: float = 0.75  # 70% -> 75%
+    high_threshold: float = 0.90  # 85% -> 90%
+    extreme_threshold: float = 0.97  # 95% -> 97%
 
-    # 高位时的信心度要求提升
-    elevated_confidence_boost: float = 0.05  # 偏高时+5%
-    high_confidence_boost: float = 0.10  # 高位时+10%
-    extreme_confidence_boost: float = 0.15  # 极高时+15%
+    # 高位时的信心度要求提升 - 大幅降低提升幅度
+    elevated_confidence_boost: float = 0.02  # 5% -> 2%
+    high_confidence_boost: float = 0.05  # 10% -> 5%
+    extreme_confidence_boost: float = 0.08  # 15% -> 8%
 
     # 回调买入参数
-    pullback_ma_periods: list = None  # 均线周期列表
-    pullback_max_distance: float = 0.10  # 最大回调距离10%
+    pullback_ma_periods: List[int] = field(
+        default_factory=lambda: [20, 50, 200]
+    )  # 均线周期列表
+    pullback_max_distance: float = 0.15  # 最大回调距离15%
 
     # 缓存时间调整
     normal_cache_duration: int = 900  # 15分钟
-    high_cache_duration: int = 300  # 5分钟
-    extreme_cache_duration: int = 60  # 1分钟
-
-    def __post_init__(self):
-        if self.pullback_ma_periods is None:
-            self.pullback_ma_periods = [20, 50, 200]  # 20日/50日/200日均线
+    high_cache_duration: int = 600  # 10分钟
+    extreme_cache_duration: int = 300  # 5分钟
 
 
 class HighPriceProtection:
@@ -231,12 +230,12 @@ class HighPriceProtection:
         """
         level = self.get_price_level(price_position)
 
-        # 基础信心度要求
+        # 基础信心度要求 - 优化后：大幅降低各级别要求
         base_confidence = {
-            HighPriceLevel.NORMAL: 0.50,
-            HighPriceLevel.ELEVATED: 0.60,
-            HighPriceLevel.HIGH: 0.70,
-            HighPriceLevel.EXTREME: 0.80,
+            HighPriceLevel.NORMAL: 0.40,  # 0.50 -> 0.40 降低要求
+            HighPriceLevel.ELEVATED: 0.50,  # 0.60 -> 0.50 降低要求
+            HighPriceLevel.HIGH: 0.60,  # 0.70 -> 0.60 降低要求
+            HighPriceLevel.EXTREME: 0.70,  # 0.80 -> 0.70 降低要求
         }[level]
 
         # 趋势方向调整
@@ -245,33 +244,33 @@ class HighPriceProtection:
 
         if trend_direction == "up":
             if trend_strength > 0.5:
-                trend_bonus = 0.05  # 强上涨趋势，可以稍低要求
+                trend_bonus = 0.08  # 强上涨趋势，可以稍低要求
                 trend_reason = "强上涨趋势允许稍低信心度"
             elif trend_strength > 0.2:
-                trend_bonus = 0.0  # 正常要求
+                trend_bonus = 0.03  # 正常要求
                 trend_reason = "正常上涨趋势"
         elif trend_direction == "down":
-            trend_bonus = -0.15  # 下跌趋势需要更高信心度
+            trend_bonus = -0.10  # 下跌趋势需要稍高信心度
             trend_reason = "下跌趋势需要更严格条件"
         else:
             trend_bonus = 0.0  # 中性
 
-        # RSI调整
+        # RSI调整 - 放宽限制
         rsi_adjustment = 0.0
         rsi_reason = ""
 
         if level != HighPriceLevel.NORMAL:
-            if rsi < 50:
+            if rsi < 55:  # 50 -> 55 放宽
                 rsi_adjustment = 0.08  # 低RSI是利好
                 rsi_reason = f"RSI({rsi:.1f})偏低，支持买入"
-            elif rsi < 60:
+            elif rsi < 65:  # 60 -> 65 放宽
                 rsi_adjustment = 0.0  # 正常
                 rsi_reason = f"RSI({rsi:.1f})中性"
-            elif rsi < 70:
-                rsi_adjustment = -0.05  # RSI偏高是利空
+            elif rsi < 78:  # 70 -> 78 放宽
+                rsi_adjustment = -0.03  # RSI偏高是利空
                 rsi_reason = f"RSI({rsi:.1f})偏高，需要更高信心度"
             else:
-                rsi_adjustment = -0.10  # RSI过高是强烈利空
+                rsi_adjustment = -0.05  # RSI过高是强烈利空
                 rsi_reason = f"RSI({rsi:.1f})超买，强烈不建议买入"
 
         # 成交量调整
