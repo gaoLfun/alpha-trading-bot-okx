@@ -153,47 +153,48 @@ class MarketMonitor:
     # 单一分数交易信号配置（范围: -1.0 到 1.0）
     # 正值=偏多, 负值=偏空, 0=中性
     # BUY: score >= 0.3, SELL: score <= -0.3, HOLD: -0.3 < score < 0.3
+    # 优化权重：增强RSI和价格位置贡献，提高BUY信号敏感度
     TRADE_SIGNALS = {
-        # RSI: (RSI - 50) / 50 → -1 (极弱) 到 1 (极强)
+        # RSI: (RSI - 50) / 50 → -1 (极弱) 到 1 (极强) - 增强权重
         "rsi": {
-            "weight": 0.20,
+            "weight": 0.25,  # 原0.20，增强25%
             "factor": lambda rsi: (rsi - 50) / 50,  # -1 到 1
         },
         # 布林带位置: (BB - 50) / 50 → -1 (底部) 到 1 (顶部)
         "bb_position": {
-            "weight": 0.15,
+            "weight": 0.12,  # 原0.15，降低20%
             "factor": lambda bb: (bb - 50) / 50,  # -1 到 1
         },
         # MACD柱状图: 归一化到 -1 到 1
         "macd": {
-            "weight": 0.15,
+            "weight": 0.12,  # 原0.15，降低20%
             "factor": lambda macd: max(-1, min(1, macd / 50)),  # 假设最大50
         },
         # ADX趋势强度: +ve 放大信号强度
         "adx": {
-            "weight": 0.10,
+            "weight": 0.08,  # 原0.10，降低20%
             "factor": lambda adx: min(1, (adx - 20) / 30),  # 20以下=0, 50以上=1
         },
-        # 24h价格位置: (Pos - 50) / 50 → -1 到 1
+        # 24h价格位置: (Pos - 50) / 50 → -1 到 1 - 增强权重
         "price_position_24h": {
-            "weight": 0.20,
+            "weight": 0.25,  # 原0.20，增强25%
             "factor": lambda pos: (pos - 50) / 50,  # -1 到 1
         },
         # 7d价格位置: (Pos - 50) / 50 → -1 到 1
         "price_position_7d": {
-            "weight": 0.10,
+            "weight": 0.08,  # 原0.10，降低20%
             "factor": lambda pos: (pos - 50) / 50,  # -1 到 1
         },
         # 波动率: 波动率越高，信号越可靠
         "volatility": {
-            "weight": 0.10,
+            "weight": 0.10,  # 保持不变
             "factor": lambda atr: min(1, atr / 1.0),  # 1%以上=1
         },
     }
 
-    # 信号阈值配置 - 优化后: 提高阈值以减少误判，同时保留小范围波动检测
-    BUY_THRESHOLD = 0.35  # 分数 >= 0.35 → BUY (原0.20，提高75%以减少误拒绝)
-    SELL_THRESHOLD = -0.35  # 分数 <= -0.35 → SELL (原-0.35，保持对称)
+    # 信号阈值配置 - 优化后: 降低阈值以捕捉更多交易机会
+    BUY_THRESHOLD = 0.20  # 分数 >= 0.20 → BUY (原0.35，降低43%以捕捉交易机会)
+    SELL_THRESHOLD = -0.20  # 分数 <= -0.20 → SELL (原-0.35，保持对称)
 
     # 小范围波动检测配置 - 新增：增强对小波动的敏感度
     SMALL_FLUCTUATION_ENABLED = True  # 启用小范围波动检测
