@@ -82,7 +82,6 @@ class AIClient:
         # 使用融合策略
         strategy_name = self.config.fusion_strategy
         threshold = self.config.fusion_threshold
-        logger.info(f"[AI融合] 策略: {strategy_name}, 阈值: {threshold}")
 
         strategy = self._get_fusion_strategy(self.config.fusion_strategy)
         fused_signal = strategy.fuse(
@@ -102,7 +101,18 @@ class AIClient:
             for sig in weighted_scores:
                 weighted_scores[sig] = weighted_scores[sig] / total
 
-        logger.info(f"[AI融合] 结果: {fused_signal} (阈值: {threshold})")
+        # 计算信号值（最大得分的信号作为最终信号）
+        max_score = max(weighted_scores.values())
+        max_signal = max(weighted_scores, key=weighted_scores.get)
+
+        # 信号有效性判断
+        is_valid = max_score >= threshold
+
+        logger.info(
+            f"[AI融合] 结果: {max_signal} (信号值:{max_score:.2f}, 阈值:{threshold}, 有效:{is_valid})"
+        )
+
+        return fused_signal
         return fused_signal
 
     async def _call_ai(
