@@ -70,10 +70,12 @@ class AIClient:
                 logger.error(f"[AI错误] {provider} 调用失败: {response}")
                 continue
             signal, confidence = parse_response(response)
+            logger.debug(f"[AI原始响应] {provider}: {response}")
             signals.append(
                 {"provider": provider, "signal": signal, "confidence": confidence}
             )
-            logger.info(f"[AI响应] {provider}: 信号={signal}, 置信度={confidence}%")
+            conf_str = f"{confidence}%" if confidence is not None else "N/A"
+            logger.info(f"[AI响应] {provider}: 信号={signal}, 置信度={conf_str}")
 
         if not signals:
             logger.warning("[AI融合] 所有AI提供商都失败，返回默认HOLD信号")
