@@ -1,40 +1,39 @@
 """
-AI模块 - 处理AI信号生成和管理
+AI模块 - 支持单AI/多AI融合
 """
 
-from .manager import AIManager, create_ai_manager, get_ai_manager, cleanup_ai_manager
-from .client import AIClient
-from .fusion import AIFusion
-from .signals import SignalGenerator, create_signal_generator
-from .providers import (
-    BaseAIProvider,
-    KimiProvider,
-    DeepSeekProvider,
-    QwenProvider,
-    OpenAIProvider
+from .client import AIClient, get_signal
+from .providers import PROVIDERS, get_provider_config
+from .prompt_builder import PromptBuilder, build_prompt
+from .response_parser import ResponseParser, parse_response, extract_signal
+from .fusion import (
+    FusionStrategy,
+    WeightedFusion,
+    MajorityFusion,
+    ConsensusFusion,
+    ConfidenceFusion,
 )
 
+__version__ = "1.0.0"
+
 __all__ = [
-    # AI管理器
-    'AIManager',
-    'create_ai_manager',
-    'get_ai_manager',
-    'cleanup_ai_manager',
-
-    # AI客户端
-    'AIClient',
-
-    # AI融合
-    'AIFusion',
-
-    # 信号生成器
-    'SignalGenerator',
-    'create_signal_generator',
-
-    # AI提供商
-    'BaseAIProvider',
-    'KimiProvider',
-    'DeepSeekProvider',
-    'QwenProvider',
-    'OpenAIProvider'
+    # 客户端
+    "AIClient",
+    "get_signal",
+    # 提供商
+    "PROVIDERS",
+    "get_provider_config",
+    # Prompt构建
+    "PromptBuilder",
+    "build_prompt",
+    # 响应解析
+    "ResponseParser",
+    "parse_response",
+    "extract_signal",
+    # 融合策略
+    "FusionStrategy",
+    "WeightedFusion",
+    "MajorityFusion",
+    "ConsensusFusion",
+    "ConfidenceFusion",
 ]

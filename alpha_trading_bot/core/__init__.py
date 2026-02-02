@@ -1,35 +1,27 @@
 """
-核心基础模块 - 提供统一的数据结构和基础组件
+Core模块 - 交易机器人核心组件
 """
 
-from .base import (
-    BaseConfig,
-    BaseComponent,
-    SignalData,
-    MarketData,
-    TradingResult
-)
+from .bot import TradingBot, main
+from .trading_scheduler import TradingScheduler, create_scheduler
+from .signal_processor import SignalProcessor, Position, process_signal, validate_signal
+from .position_manager import PositionManager, create_position_manager
 
-from .bot import TradingBot, BotConfig
-from .exceptions import TradingBotException, ConfigurationError, ExchangeError
+__version__ = "1.0.0"
 
 __all__ = [
-    # 基础数据结构
-    'BaseConfig',
-    'BaseComponent',
-    'SignalData',
-    'MarketData',
-    'TradingResult',
-
-    # 交易机器人
-    'TradingBot',
-    'BotConfig',
-
-    # 异常类
-    'TradingBotException',
-    'ConfigurationError',
-    'ExchangeError'
+    # 主类
+    "TradingBot",
+    "main",
+    # 调度器
+    "TradingScheduler",
+    "create_scheduler",
+    # 信号处理器
+    "SignalProcessor",
+    "Position",
+    "process_signal",
+    "validate_signal",
+    # 仓位管理器
+    "PositionManager",
+    "create_position_manager",
 ]
-# 新增：重构后的组件
-from .scheduler import TradeScheduler, SchedulerConfig
-from .risk_monitor import RiskMonitor, RiskMonitorConfig
