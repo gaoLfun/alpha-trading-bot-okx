@@ -3,7 +3,7 @@
 """
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .base import FusionStrategy
 
@@ -18,6 +18,7 @@ class MajorityFusion(FusionStrategy):
         signals: List[Dict[str, str]],
         weights: Dict[str, float],
         threshold: float,
+        confidences: Optional[Dict[str, int]] = None,
     ) -> str:
         if not signals:
             logger.warning("无有效信号，默认hold")
@@ -36,6 +37,6 @@ class MajorityFusion(FusionStrategy):
                 return sig
 
         # 未达阈值，取最多的
-        max_sig = max(signal_counts, key=signal_counts.get)
+        max_sig: str = max(signal_counts, key=signal_counts.get)  # type: ignore[arg-type]
         self._log_result("多数表决-降级", max_sig, f"max count")
         return max_sig

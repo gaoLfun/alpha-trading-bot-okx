@@ -18,6 +18,8 @@ class FusionStrategy(ABC):
         signals: List[Dict[str, str]],
         weights: Dict[str, float],
         threshold: float,
+        *,
+        confidences: Optional[Dict[str, int]] = None,
     ) -> str:
         """
         融合信号
@@ -26,15 +28,14 @@ class FusionStrategy(ABC):
             signals: [{"provider": "deepseek", "signal": "buy"}, ...]
             weights: {"deepseek": 0.5, "kimi": 0.5, ...}
             threshold: 融合阈值
+            confidences: {"deepseek": 70, "kimi": 75, ...} 置信度（可选）
 
         Returns:
             融合后的信号: buy/hold/sell
         """
         pass
 
-    def _log_result(
-        self, strategy_name: str, result: str, details: str
-    ) -> None:
+    def _log_result(self, strategy_name: str, result: str, details: str) -> None:
         """记录融合结果"""
         logger.info(f"融合结果({strategy_name}): {result} ({details})")
 
@@ -47,26 +48,31 @@ _strategy_cache_name: Optional[str] = None
 def get_fusion_strategy(name: str) -> FusionStrategy:
     """获取融合策略实例（延迟加载）"""
     global _strategy_cache, _strategy_cache_name
-    
+
     if _strategy_cache_name == name and _strategy_cache is not None:
         return _strategy_cache
-    
+
     # 延迟导入策略类
     if name == "weighted":
         from .weighted import WeightedFusion
+
         _strategy_cache = WeightedFusion()
     elif name == "majority":
         from .majority import MajorityFusion
+
         _strategy_cache = MajorityFusion()
     elif name == "consensus":
         from .consensus import ConsensusFusion
+
         _strategy_cache = ConsensusFusion()
     elif name == "confidence":
         from .confidence import ConfidenceFusion
+
         _strategy_cache = ConfidenceFusion()
     else:
         from .weighted import WeightedFusion
+
         _strategy_cache = WeightedFusion()
-    
+
     _strategy_cache_name = name
     return _strategy_cache

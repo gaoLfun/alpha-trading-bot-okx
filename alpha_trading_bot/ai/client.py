@@ -65,6 +65,7 @@ class AIClient:
         responses = await asyncio.gather(*tasks, return_exceptions=True)
 
         signals = []
+        confidences: Dict[str, int] = {}
         for provider, response in zip(providers, responses):
             if isinstance(response, Exception):
                 logger.error(f"[AI错误] {provider} 调用失败: {response}")
@@ -74,6 +75,8 @@ class AIClient:
             signals.append(
                 {"provider": provider, "signal": signal, "confidence": confidence}
             )
+            if confidence is not None:
+                confidences[provider] = confidence
             conf_str = f"{confidence}%" if confidence is not None else "N/A"
             logger.info(f"[AI响应] {provider}: 信号={signal}, 置信度={conf_str}")
 
@@ -90,6 +93,7 @@ class AIClient:
             signals,
             self.config.fusion_weights,
             self.config.fusion_threshold,
+            confidences=confidences,
         )
 
         # 获取各信号得分

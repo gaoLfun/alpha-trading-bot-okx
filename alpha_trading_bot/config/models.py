@@ -38,7 +38,7 @@ class AIConfig:
     fusion_weights: Dict[str, float] = field(
         default_factory=lambda: {"deepseek": 0.5, "kimi": 0.5}
     )
-    fusion_threshold: float = 0.6
+    fusion_threshold: float = 0.5
 
     # 各提供商API Keys
     api_keys: Dict[str, str] = field(default_factory=dict)

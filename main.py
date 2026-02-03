@@ -21,10 +21,10 @@ load_dotenv()
 log_dir = "logs"
 os.makedirs(log_dir, exist_ok=True)
 
-# 日志文件名（日期格式）
-log_file = os.path.join(
-    log_dir, f"alpha-trading-bot-okx-{datetime.now().strftime('%Y%m%d')}.log"
-)
+# 配置日志 - 每日自动切割
+from logging.handlers import TimedRotatingFileHandler
+
+log_file = os.path.join(log_dir, "alpha-trading-bot-okx.log")
 
 # 配置日志
 logging.basicConfig(
@@ -32,7 +32,13 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     handlers=[
         logging.StreamHandler(),  # 控制台输出
-        logging.FileHandler(log_file, encoding="utf-8"),  # 文件输出
+        TimedRotatingFileHandler(
+            log_file,
+            when="midnight",
+            interval=1,
+            backupCount=30,  # 保留30天日志
+            encoding="utf-8",
+        ),
     ],
 )
 

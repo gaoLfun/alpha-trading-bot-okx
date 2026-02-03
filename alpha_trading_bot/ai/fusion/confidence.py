@@ -3,7 +3,7 @@
 """
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .base import FusionStrategy
 
@@ -18,12 +18,13 @@ class ConfidenceFusion(FusionStrategy):
         signals: List[Dict[str, str]],
         weights: Dict[str, float],
         threshold: float,
+        confidences: Optional[Dict[str, int]] = None,
     ) -> str:
         if not signals:
             logger.warning("无有效信号，默认hold")
             return "hold"
 
-        signal_counts = {}
+        signal_counts: Dict[str, int] = {}
         total = len(signals)
 
         for s in signals:
