@@ -168,7 +168,11 @@ class TradingBot:
         logger.info(f"[AI信号] 原始信号: {signal}")
 
         # 5. 处理信号
-        await self._execute_signal(signal, current_price, has_position)
+        try:
+            await self._execute_signal(signal, current_price, has_position)
+        except Exception as e:
+            logger.error(f"[信号执行] 执行信号时出错: {e}")
+            logger.exception("详细错误:")
 
         logger.info("交易周期完成")
         logger.info("=" * 60)
