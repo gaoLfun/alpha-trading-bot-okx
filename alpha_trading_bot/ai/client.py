@@ -89,11 +89,14 @@ class AIClient:
         threshold = self.config.fusion_threshold
 
         strategy = self._get_fusion_strategy(self.config.fusion_strategy)
+
+        # 传递market_data以支持动态阈值计算
         fused_signal = strategy.fuse(
             signals,
             self.config.fusion_weights,
             self.config.fusion_threshold,
             confidences=confidences,
+            market_data=market_data,  # 新增：支持动态阈值
         )
 
         # 获取各信号得分

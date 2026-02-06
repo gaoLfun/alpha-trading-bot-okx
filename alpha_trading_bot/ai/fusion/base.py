@@ -4,7 +4,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Optional
+from typing import Dict, List, Type, Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ class FusionStrategy(ABC):
         threshold: float,
         *,
         confidences: Optional[Dict[str, int]] = None,
+        market_data: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         融合信号
@@ -29,6 +30,7 @@ class FusionStrategy(ABC):
             weights: {"deepseek": 0.5, "kimi": 0.5, ...}
             threshold: 融合阈值
             confidences: {"deepseek": 70, "kimi": 75, ...} 置信度（可选）
+            market_data: 市场数据字典，用于动态阈值计算（可选）
 
         Returns:
             融合后的信号: buy/hold/sell
@@ -69,10 +71,14 @@ def get_fusion_strategy(name: str) -> FusionStrategy:
         from .confidence import ConfidenceFusion
 
         _strategy_cache = ConfidenceFusion()
-    else:
-        from .weighted import WeightedFusion
+    elif name == "consensus_boosted":
+        from .consensus_boosted import ConsensusBoostedFusion
 
-        _strategy_cache = WeightedFusion()
+        _strategy_cache = ConsensusBoostedFusion()
+    else:
+        from .consensus_boosted import ConsensusBoostedFusion
+
+        _strategy_cache = ConsensusBoostedFusion()
 
     _strategy_cache_name = name
     return _strategy_cache
