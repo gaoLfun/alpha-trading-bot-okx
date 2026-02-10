@@ -330,8 +330,10 @@ class AIClient:
             logger.error(f"AI[{provider}]调用失败: {e}")
             raise
 
-    def _get_timeout_config(self, provider: str) -> aiohttp.ClientTimeout:
+    def _get_timeout_config(self, provider: str) -> "aiohttp.ClientTimeout":
         """获取提供商特定超时配置"""
+        import aiohttp
+
         timeout_map = {
             "kimi": 90,  # Kimi 晚间慢，增加到 90 秒
             "deepseek": 60,
