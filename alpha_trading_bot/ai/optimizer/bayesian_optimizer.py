@@ -3,6 +3,11 @@
 
 使用 Optuna 进行参数自动优化
 每日收盘后运行，找出最优参数组合
+
+功能增强：
+- 详细的学习过程日志记录
+- 优化结果可视化
+- 学习历史追踪
 """
 
 import logging
@@ -15,6 +20,10 @@ import os
 logger = logging.getLogger(__name__)
 
 
+# 学习历史记录（全局）
+_learning_history: list[Dict[str, Any]] = []
+
+
 @dataclass
 class OptimizationResult:
     """优化结果"""
@@ -25,8 +34,10 @@ class OptimizationResult:
     optimization_time_seconds: float
     study_name: str
     timestamp: str
+    learning_details: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        details = self.learning_details if self.learning_details is not None else {}
         return {
             "best_params": self.best_params,
             "best_value": self.best_value,
@@ -34,6 +45,7 @@ class OptimizationResult:
             "optimization_time_seconds": self.optimization_time_seconds,
             "study_name": self.study_name,
             "timestamp": self.timestamp,
+            "learning_details": details,
         }
 
 
@@ -143,7 +155,10 @@ class BayesianOptimizer:
                 elif config["type"] == "categorical":
                     params[name] = trial.suggest_categorical(name, config["choices"])
 
-            return self._objective_func(params)
+            obj_func = self._objective_func
+            if obj_func is not None:
+                return obj_func(params)
+            return 0.0
 
         return objective
 
@@ -182,17 +197,30 @@ class BayesianOptimizer:
             best_params = study.best_params
             best_value = study.best_value
 
+            # 记录学习详情
+            learning_details = {
+                "search_space": self._search_space,
+                "trials_completed": len(study.trials),
+                "best_trial_number": study.best_trial.number,
+            }
+
+            # 详细的学习日志
             logger.info(
-                f"[贝叶斯优化] 完成: 最优值={best_value:.4f}, 试验次数={study.n_trials}"
+                f"[贝叶斯优化] 学习完成: "
+                f"最优值={best_value:.4f}, "
+                f"试验次数={len(study.trials)}, "
+                f"耗时={optimization_time:.2f}秒"
             )
+            logger.info(f"[贝叶斯优化] 最优参数: {best_params}")
 
             return OptimizationResult(
                 best_params=best_params,
                 best_value=best_value,
-                n_trials=study.n_trials,
+                n_trials=len(study.trials),
                 optimization_time_seconds=optimization_time,
                 study_name=self.study_name,
                 timestamp=datetime.now().isoformat(),
+                learning_details=learning_details,
             )
 
         except ImportError:
@@ -204,6 +232,7 @@ class BayesianOptimizer:
                 optimization_time_seconds=0,
                 study_name=self.study_name,
                 timestamp=datetime.now().isoformat(),
+                learning_details={"error": "optuna not installed"},
             )
 
     def get_best_params(self) -> Dict[str, float]:
@@ -228,9 +257,7 @@ class BayesianOptimizer:
             storage = f"sqlite:///{self.storage_path}"
             study = optuna.load_study(study_name=self.study_name, storage=storage)
 
-            trials = study.get_trials(
-                deepcopy=False, order_by="value", descending=True
-            )[:n_top]
+            trials = study.get_trials(deepcopy=False)[-n_top:][::-1]
 
             return [
                 {
@@ -238,7 +265,7 @@ class BayesianOptimizer:
                     "value": t.value,
                     "params": t.params,
                     "state": t.state.name,
-                    "duration": t.duration.total_seconds(),
+                    "duration": t.duration.total_seconds() if t.duration else 0,
                 }
                 for t in trials
             ]
