@@ -143,7 +143,30 @@ class ConsensusBoostedFusion:
         else:
             # 修复 BUG：始终计算动态阈值，不依赖 threshold 是否为 None
             # 根据市场环境动态调整信号触发条件
-            effective_threshold = self._calculate_dynamic_threshold(market_data)
+
+            # 先计算原始得分，确定可能胜出的信号类型
+            raw_scores = {"buy": 0, "hold": 0, "sell": 0}
+            for s in signals:
+                sig = s["signal"]
+                weight = weights.get(s["provider"], 1.0)
+                confidence = (
+                    confidences.get(s["provider"], self.config.default_confidence)
+                    if confidences
+                    else self.config.default_confidence
+                )
+                raw_scores[sig] += weight * (confidence / 100.0)
+
+            # 确定可能胜出的信号类型
+            likely_winner = max(raw_scores, key=raw_scores.get)
+
+            # 根据可能的胜出信号类型计算动态阈值
+            signal_type = (
+                likely_winner if likely_winner in ["buy", "sell"] else "general"
+            )
+            effective_threshold = self._calculate_dynamic_threshold(
+                market_data, signal_type
+            )
+
             return self._fuse_consensus_boosted(
                 signals, weights, effective_threshold, confidences, consensus_ratio
             )
@@ -440,19 +463,23 @@ class ConsensusBoostedFusion:
         )
 
     def _calculate_dynamic_threshold(
-        self, market_data: Optional[Dict[str, Any]]
+        self,
+        market_data: Optional[Dict[str, Any]],
+        signal_type: str = "general",
     ) -> float:
         """
         动态阈值计算
 
-        根据市场环境动态调整融合阈值：
+        根据市场环境和信号类型动态调整融合阈值：
         - RSI超卖区域：降低买入阈值，更容易触发买入
-        - RSI超买区域：降低卖出阈值，更容易触发卖出
-        - 高波动环境：提高阈值，更谨慎
-        - 默认使用配置阈值
+        - RSI超买区域：降低卖出阈值，更容易获利了结
+        - 高波动环境 + 上升趋势：降低买入阈值（顺势做多）
+        - 高波动环境 + 下降趋势：提高买入阈值（避免抄底）
+        - 强趋势环境：根据趋势方向调整
 
         Args:
             market_data: 市场数据字典
+            signal_type: 信号类型 ("buy"/"sell"/"general")
 
         Returns:
             float: 动态调整后的阈值
@@ -465,6 +492,13 @@ class ConsensusBoostedFusion:
         rsi = technical.get("rsi", 50)
         atr_pct = technical.get("atr_percent", 0)
         trend_strength = technical.get("trend_strength", 0)
+        trend_direction = technical.get("trend_direction", "neutral")
+
+        # 记录趋势方向信息
+        logger.info(
+            f"[融合-动态阈值] 趋势方向={trend_direction}, 强度={trend_strength:.2f}, "
+            f"信号类型={signal_type}, RSI={rsi:.1f}, ATR={atr_pct:.1%}"
+        )
 
         # RSI超卖区域（<35）：降低买入阈值，更容易抄底
         if rsi < 35:
@@ -482,20 +516,66 @@ class ConsensusBoostedFusion:
             )
             return dynamic_threshold
 
-        # 高波动环境（ATR > 3%）：提高阈值，更谨慎
+        # 高波动环境（ATR > 3%）：根据趋势方向调整
         elif atr_pct > 0.03:
-            dynamic_threshold = min(0.55, base_threshold + 0.08)
-            logger.info(
-                f"[融合-动态阈值] 高波动(ATR:{atr_pct:.1%})，阈值调整: {base_threshold:.2f} -> {dynamic_threshold:.2f}"
-            )
+            if trend_direction == "bullish":
+                # 上升趋势中：降低买入阈值，顺势做多
+                dynamic_threshold = max(0.35, base_threshold - 0.08)
+                logger.info(
+                    f"[融合-动态阈值] 高波动+上升趋势，{signal_type}阈值调整: "
+                    f"{base_threshold:.2f} -> {dynamic_threshold:.2f} (顺势做多)"
+                )
+            elif trend_direction == "bearish":
+                # 下降趋势中：提高买入阈值，避免逆势抄底
+                dynamic_threshold = min(0.55, base_threshold + 0.08)
+                logger.info(
+                    f"[融合-动态阈值] 高波动+下降趋势，{signal_type}阈值调整: "
+                    f"{base_threshold:.2f} -> {dynamic_threshold:.2f} (避免抄底)"
+                )
+            else:
+                # 震荡市：保持基准
+                dynamic_threshold = base_threshold
+                logger.info(
+                    f"[融合-动态阈值] 高波动+震荡市，{signal_type}阈值保持: {base_threshold:.2f}"
+                )
             return dynamic_threshold
 
-        # 强趋势环境：略微提高阈值
+        # 强趋势环境：根据趋势方向调整
         elif trend_strength > 0.4:
-            dynamic_threshold = base_threshold + 0.03
-            logger.info(
-                f"[融合-动态阈值] 强趋势({trend_strength:.2f})，阈值调整: {base_threshold:.2f} -> {dynamic_threshold:.2f}"
-            )
+            if trend_direction == "bullish":
+                # 上升趋势：buy 略微放宽，sell 略微收紧
+                if signal_type == "buy":
+                    dynamic_threshold = max(0.40, base_threshold - 0.05)
+                    logger.info(
+                        f"[融合-动态阈值] 强上升趋势，buy阈值调整: "
+                        f"{base_threshold:.2f} -> {dynamic_threshold:.2f} (顺势做多)"
+                    )
+                elif signal_type == "sell":
+                    dynamic_threshold = min(0.55, base_threshold + 0.05)
+                    logger.info(
+                        f"[融合-动态阈值] 强上升趋势，sell阈值调整: "
+                        f"{base_threshold:.2f} -> {dynamic_threshold:.2f} (谨慎做空)"
+                    )
+                else:
+                    dynamic_threshold = base_threshold
+            elif trend_direction == "bearish":
+                # 下降趋势：buy 收紧，sell 放宽
+                if signal_type == "buy":
+                    dynamic_threshold = min(0.55, base_threshold + 0.05)
+                    logger.info(
+                        f"[融合-动态阈值] 强下降趋势，buy阈值调整: "
+                        f"{base_threshold:.2f} -> {dynamic_threshold:.2f} (避免抄底)"
+                    )
+                elif signal_type == "sell":
+                    dynamic_threshold = max(0.40, base_threshold - 0.05)
+                    logger.info(
+                        f"[融合-动态阈值] 强下降趋势，sell阈值调整: "
+                        f"{base_threshold:.2f} -> {dynamic_threshold:.2f} (顺势做空)"
+                    )
+                else:
+                    dynamic_threshold = base_threshold
+            else:
+                dynamic_threshold = base_threshold
             return dynamic_threshold
 
         # 默认阈值
