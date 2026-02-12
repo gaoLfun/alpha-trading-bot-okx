@@ -297,6 +297,11 @@ class AIClient:
         """调用单个AI - 差异化"""
         import aiohttp
 
+        # 获取提供商配置
+        from .providers import get_provider_config
+
+        config = get_provider_config(provider)
+
         # 根据 provider 生成差异化 prompt
         prompt = build_prompt(market_data, provider=provider)
 
