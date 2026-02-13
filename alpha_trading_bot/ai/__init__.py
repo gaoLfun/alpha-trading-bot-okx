@@ -11,6 +11,11 @@ AI模块 - 支持单AI/多AI融合
 - 信号优化器：信号过滤和优化
 - 高位买入优化器：高位信号过滤
 - BTC价格检测器：针对BTC高波动的价格水平检测
+- 动态卖出条件：动态调整卖出阈值
+- Prompt优化器：趋势感知的AI交易决策
+- 趋势反转检测：多维度趋势反转信号检测
+- 配置管理器：统一管理AI相关配置
+- 回测验证器：基于历史数据验证交易策略
 - 信号集成器：统一接口，集成所有优化模块
 """
 
@@ -48,6 +53,44 @@ from .integrator import (
     IntegrationConfig,
     IntegratedSignalResult,
     create_integrator,
+)
+from .dynamic_sell_condition import (
+    SellConditionResult,
+    SellConditions,
+    DynamicSellCondition,
+)
+from .prompt_optimizer import (
+    MarketRegime,
+    MomentumStrength,
+    MarketContext,
+    PromptConfig,
+    OptimizedPromptBuilder,
+    AdaptivePromptSelector,
+    build_optimized_prompt,
+)
+from .trend_reversal_detector import (
+    TrendReversalSignal,
+    TrendMetrics,
+    TrendReversalDetector,
+)
+from .config_manager import (
+    AIConfig,
+    BuyConditionsConfig,
+    SellConditionsConfig,
+    FusionConfig,
+    TrendDetectionConfig,
+    SignalOptimizerConfig,
+    BacktestConfigConfig,
+    AIConfigManager,
+    load_ai_config,
+    create_default_config,
+)
+from .backtest_validator import (
+    TradeResult,
+    Trade,
+    BacktestResult,
+    BacktestConfig,
+    BacktestValidator,
 )
 
 __version__ = "1.0.0"
@@ -90,6 +133,39 @@ __all__ = [
     "PriceLevelResult",
     "EnhancedBuyConfig",
     "EnhancedBuyOptimizer",
+    # 动态卖出条件 (P0)
+    "SellConditionResult",
+    "SellConditions",
+    "DynamicSellCondition",
+    # Prompt优化器 (P1)
+    "MarketRegime",
+    "MomentumStrength",
+    "MarketContext",
+    "PromptConfig",
+    "OptimizedPromptBuilder",
+    "AdaptivePromptSelector",
+    "build_optimized_prompt",
+    # 趋势反转检测器 (P1)
+    "TrendReversalSignal",
+    "TrendMetrics",
+    "TrendReversalDetector",
+    # 配置管理器 (P2)
+    "AIConfig",
+    "BuyConditionsConfig",
+    "SellConditionsConfig",
+    "FusionConfig",
+    "TrendDetectionConfig",
+    "SignalOptimizerConfig",
+    "BacktestConfigConfig",
+    "AIConfigManager",
+    "load_ai_config",
+    "create_default_config",
+    # 回测验证器 (P2)
+    "TradeResult",
+    "Trade",
+    "BacktestResult",
+    "BacktestConfig",
+    "BacktestValidator",
     # 信号集成器
     "AISignalIntegrator",
     "IntegrationConfig",
