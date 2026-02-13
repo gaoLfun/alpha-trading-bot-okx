@@ -177,7 +177,7 @@ class AISignalIntegrator:
         # 1. AdaptiveBuyCondition
         if self.adaptive_buy and self.config.enable_adaptive_buy:
             try:
-                buyaptive_buy.should_buy(m_result=self.adarket_data)
+                buy_result = self.adaptive_buy.should_buy(market_data=market_data)
                 result.buy_condition_result = buy_result
 
                 # 如果买入条件判断可以买入，提高置信度
