@@ -111,9 +111,8 @@ class AIClient:
             )
 
         # 使用集成器优化信号
-        confidence_float = (
-            float(original_confidence) / 100 if original_confidence else 0.50
-        )
+        # 注意：融合器返回的 confidence 已经是 0-1 范围，不需要再除以 100
+        confidence_float = original_confidence if original_confidence else 0.50
         result = self.integrator.process(
             market_data=market_data,
             original_signal=original_signal,
