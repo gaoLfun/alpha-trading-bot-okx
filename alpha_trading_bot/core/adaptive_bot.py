@@ -106,10 +106,15 @@ class AdaptiveTradingBot:
         # 权重优化器
         self.weight_optimizer = get_weight_optimizer()
 
+        # 回测学习器（无需真实交易也能学习）
+        from ..ai.ml.signal_backtest import get_backtest_learner
+
+        self.backtest_learner = get_backtest_learner()
+
         # 学习集成器（简化版）
         self.simple_learning = SimpleLearningLoop()
 
-        logger.info("[自适应] 所有组件初始化完成（含ML学习模块）")
+        logger.info("[自适应] 所有组件初始化完成（含ML学习模块 + 回测学习）")
 
     @property
     def exchange(self):
@@ -536,7 +541,7 @@ class AdaptiveTradingBot:
             logger.warning(f"[ML学习] 在线更新失败: {e}")
 
     async def _background_optimization_task(self) -> None:
-        """后台优化任务（每6小时运行一次ML学习）"""
+        """后台优化任务（每6小时运行一次ML学习，包括回测学习）"""
         from datetime import timezone
 
         while self._running:
@@ -564,41 +569,56 @@ class AdaptiveTradingBot:
                     f"胜率={daily_data.get('win_rate', 0):.2%}"
                 )
 
-                # 2. 获取历史市场数据（使用ML数据管理器）
+                # 2. 运行回测学习（无需真实交易也能学习）
                 try:
-                    # 从ML数据管理器获取市场特征
-                    market_features = self.ml_data_manager.get_market_features(
-                        symbol=self.config.exchange.symbol, periods=100
+                    # 获取回测结果
+                    backtest_result = self.backtest_learner.backtest_signals(
+                        days=60, holding_hours=4, min_confidence=0.5
                     )
 
-                    # 3. 运行 ML 学习循环
-                    learning_result = self.simple_learning.learn_from_trades()
-                    logger.info(f"[ML学习] 学习结果: 权重={learning_result}")
-
-                    # 4. 获取优化后的权重
-                    optimized_weights, confidence = (
-                        self.weight_optimizer.get_optimized_weights()
-                    )
-                    logger.info(
-                        f"[ML学习] 优化权重: {optimized_weights}, 置信度={confidence:.2f}"
-                    )
-
-                    # 5. 应用新权重（如果改善显著）
-                    if confidence > 0.6:
-                        self.simple_learning.data_manager.save_model_weights(
-                            optimized_weights, source="auto_optimize"
+                    if backtest_result.total_signals > 0:
+                        logger.info(
+                            f"[ML学习] 回测结果: 信号数={backtest_result.total_signals}, "
+                            f"胜率={backtest_result.win_rate:.2%}, "
+                            f"平均收益={backtest_result.average_return:.2f}%"
                         )
-                        logger.info(f"[ML学习] 已应用新权重: {optimized_weights}")
+
+                        # 显示各提供商表现
+                        for provider, stats in backtest_result.provider_stats.items():
+                            logger.info(
+                                f"[ML学习] {provider}: 胜率={stats.get('win_rate', 0):.2%}, "
+                                f"平均收益={stats.get('average_return', 0):.2f}%"
+                            )
+
+                        # 学习回测结果，更新权重
+                        backtest_weights = self.backtest_learner.learn_from_backtest()
+
+                        # 3. 结合真实交易数据学习
+                        if metrics.total_trades > 0:
+                            # 如果有真实交易，使用真实交易数据优化
+                            trade_weights = self.simple_learning.learn_from_trades()
+                            logger.info(f"[ML学习] 真实交易权重: {trade_weights}")
+
+                        # 4. 应用学习结果
+                        # 保存回测学习的权重
+                        self.simple_learning.data_manager.save_model_weights(
+                            backtest_weights, source="backtest_learn"
+                        )
+
+                        logger.info(f"[ML学习] 回测学习权重已保存: {backtest_weights}")
+                    else:
+                        logger.warning("[ML学习] 回测无结果，跳过回测学习")
 
                 except Exception as e:
-                    logger.warning(f"[ML学习] ML优化失败，使用基础权重: {e}")
-                    # 使用基于表现的基础权重
-                    optimized_weights = (
-                        self.weight_optimizer.calculate_performance_based_weights()
-                    )
-                    self.simple_learning.data_manager.save_model_weights(
-                        optimized_weights, source="fallback"
-                    )
+                    logger.warning(f"[ML学习] 回测学习失败: {e}")
+
+                # 5. 获取优化后的权重
+                optimized_weights, confidence = (
+                    self.weight_optimizer.get_optimized_weights()
+                )
+                logger.info(
+                    f"[ML学习] 优化权重: {optimized_weights}, 置信度={confidence:.2f}"
+                )
 
                 logger.info("[ML学习] 后台优化任务完成")
 
