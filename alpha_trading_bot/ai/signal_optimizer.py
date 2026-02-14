@@ -149,7 +149,7 @@ class SignalOptimizer:
         # 4. 市场环境适应
         if self.config.volatility_adjustment and market_data:
             confidence = self._adjust_for_volatility(
-                market_data, confidence, adjustments
+                signal, market_data, confidence, adjustments
             )
 
         # 5. 连续信号检查
@@ -265,6 +265,7 @@ class SignalOptimizer:
 
     def _adjust_for_volatility(
         self,
+        signal: str,
         market_data: Dict[str, Any],
         confidence: float,
         adjustments: List[str],
@@ -287,10 +288,21 @@ class SignalOptimizer:
 
         # 高波动环境
         if atr_pct > self.config.high_volatility_threshold:
-            # 高波动时降低置信度
-            adjustment = (atr_pct - self.config.high_volatility_threshold) * 2
-            confidence = confidence * (1 - min(adjustment, 0.3))
-            adjustments.append(f"高波动({atr_pct:.1%})调整: -{adjustment * 100:.1f}%")
+            # BUY 信号在高波动时减少削减幅度（高波动可能是买入机会）
+            # SELL 信号正常削减
+            # HOLD 信号保持原有逻辑
+            if signal.upper() == "BUY":
+                adjustment = (atr_pct - self.config.high_volatility_threshold) * 1
+                confidence = confidence * (1 - min(adjustment, 0.15))
+                adjustments.append(
+                    f"高波动({atr_pct:.1%})BUY调整: -{adjustment * 100:.1f}%"
+                )
+            else:
+                adjustment = (atr_pct - self.config.high_volatility_threshold) * 2
+                confidence = confidence * (1 - min(adjustment, 0.3))
+                adjustments.append(
+                    f"高波动({atr_pct:.1%})调整: -{adjustment * 100:.1f}%"
+                )
 
         # 低波动环境
         elif atr_pct < 0.01:  # 1%

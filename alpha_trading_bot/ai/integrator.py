@@ -273,6 +273,7 @@ class AISignalIntegrator:
                     original_confidence=original_confidence,
                     original_can_buy=(original_signal == "BUY"),
                     buy_mode=result.price_level,
+                    original_signal=original_signal,
                 )
 
                 result.high_price_result = {

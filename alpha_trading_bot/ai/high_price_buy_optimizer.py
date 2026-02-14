@@ -104,6 +104,7 @@ class HighPriceBuyOptimizer:
         original_confidence: float,
         original_can_buy: bool,
         buy_mode: str,
+        original_signal: str = "HOLD",
     ) -> HighPriceBuyResult:
         """
         优化高位BUY信号
@@ -113,6 +114,7 @@ class HighPriceBuyOptimizer:
             original_confidence: 原始置信度
             original_can_buy: 原始买入判断
             buy_mode: 买入模式
+            original_signal: 原始信号类型 (BUY/HOLD/SELL)
 
         Returns:
             HighPriceBuyResult: 优化后的结果
@@ -155,38 +157,50 @@ class HighPriceBuyOptimizer:
         adjustment_reason = ""
         penalty_applied = False
 
+        # 判断是否为原始 BUY 信号（对 BUY 信号减少惩罚）
+        is_original_buy = original_signal.upper() == "BUY"
+
+        # BUY 信号惩罚系数（减少惩罚幅度）
+        penalty_factor = 0.5 if is_original_buy else 1.0
+
         # 6.1 价格水平调整
         if price_level == "high":
             # 高位时需要更高的置信度
             if original_confidence < 0.75:
-                adjusted_confidence = max(adjusted_confidence - 0.10, 0.35)
-                adjustment_reason += "高位警告: 置信度降低10%; "
+                adjusted_confidence = max(
+                    adjusted_confidence - (0.10 * penalty_factor), 0.35
+                )
+                adjustment_reason += f"高位警告: 置信度降低{10 * penalty_factor:.0f}%; "
 
         # 6.2 价格位置检查
         if price_position >= thresholds["price_position_threshold"]:
-            adjusted_confidence = max(adjusted_confidence - 0.15, 0.35)
-            adjustment_reason += f"价格位置过高({price_position:.1f}%>{thresholds['price_position_threshold']}%): 置信度降低15%; "
+            adjusted_confidence = max(
+                adjusted_confidence - (0.15 * penalty_factor), 0.35
+            )
+            adjustment_reason += f"价格位置过高({price_position:.1f}%>{thresholds['price_position_threshold']}%): 置信度降低{15 * penalty_factor:.0f}%; "
             penalty_applied = True
 
         # 6.3 RSI检查
         if rsi >= thresholds["rsi_threshold"]:
-            adjusted_confidence = max(adjusted_confidence - 0.12, 0.35)
-            adjustment_reason += (
-                f"RSI过高({rsi:.1f}>{thresholds['rsi_threshold']}): 置信度降低12%; "
+            adjusted_confidence = max(
+                adjusted_confidence - (0.12 * penalty_factor), 0.35
             )
+            adjustment_reason += f"RSI过高({rsi:.1f}>{thresholds['rsi_threshold']}): 置信度降低{12 * penalty_factor:.0f}%; "
             penalty_applied = True
 
         # 6.4 趋势强度检查
         if trend_strength < thresholds["trend_strength_threshold"]:
-            adjusted_confidence = max(adjusted_confidence - 0.10, 0.35)
-            adjustment_reason += f"趋势强度不足({trend_strength:.2f}<{thresholds['trend_strength_threshold']:.2f}): 置信度降低10%; "
+            adjusted_confidence = max(
+                adjusted_confidence - (0.10 * penalty_factor), 0.35
+            )
+            adjustment_reason += f"趋势强度不足({trend_strength:.2f}<{thresholds['trend_strength_threshold']:.2f}): 置信度降低{10 * penalty_factor:.0f}%; "
             penalty_applied = True
 
         # 6.5 价格位置上升惩罚
         if len(self.price_history) >= 5:
             position_change = self._calculate_price_position_change()
             if position_change > self.config.price_position_rise_threshold:
-                penalty = self.config.price_position_rise_penalty
+                penalty = self.config.price_position_rise_penalty * penalty_factor
                 adjusted_confidence = max(adjusted_confidence - penalty, 0.35)
                 adjustment_reason += f"价格位置快速上升({position_change:.1f}%): 置信度降低{penalty * 100:.0f}%; "
                 penalty_applied = True
@@ -194,17 +208,22 @@ class HighPriceBuyOptimizer:
         # 6.6 近期高点检测
         near_high = self._is_near_recent_high(price)
         if near_high:
-            adjusted_confidence = max(adjusted_confidence - 0.08, 0.35)
-            adjustment_reason += "接近近期高点: 置信度降低8%; "
+            adjusted_confidence = max(
+                adjusted_confidence - (0.08 * penalty_factor), 0.35
+            )
+            adjustment_reason += f"接近近期高点: 置信度降低{8 * penalty_factor:.0f}%; "
             penalty_applied = True
 
         # 7. 综合判断
         # 原始可以买入，且优化后置信度仍然足够
         should_buy = original_can_buy and adjusted_confidence >= 0.50
 
-        # 如果有惩罚项applied，降低买入门槛
-        if penalty_applied and adjusted_confidence >= 0.45:
-            should_buy = False  # 高位有惩罚时，需要更严格
+        # 如果是 BUY 信号，有惩罚时降低买入门槛（不要过于严格）
+        if penalty_applied:
+            if is_original_buy and adjusted_confidence >= 0.40:
+                should_buy = True  # BUY 信号放宽门槛
+            elif not is_original_buy and adjusted_confidence >= 0.45:
+                should_buy = False  # 非 BUY 信号保持严格
 
         result = HighPriceBuyResult(
             adjusted_confidence=adjusted_confidence,
