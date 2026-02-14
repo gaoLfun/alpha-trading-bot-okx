@@ -516,6 +516,11 @@ class ConsensusBoostedFusion:
         max_score = weighted_scores[max_sig]
         is_valid = max_score >= threshold
 
+        # HOLD 信号不应给太高置信度，基于一致性比例调整
+        final_confidence = max_score
+        if max_sig == "hold":
+            final_confidence = min(0.7, max_score * consensus_ratio * 1.2)
+
         logger.info(
             f"[融合-一致性强化] 结果: {max_sig} "
             f"(buy:{weighted_scores['buy']:.2f}, hold:{weighted_scores['hold']:.2f}, "
@@ -525,7 +530,7 @@ class ConsensusBoostedFusion:
 
         return FusionResult(
             signal=max_sig,
-            confidence=max_score,
+            confidence=final_confidence,
             scores=weighted_scores,
             threshold=threshold,
             is_valid=is_valid,
