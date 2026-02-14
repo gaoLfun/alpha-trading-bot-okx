@@ -174,6 +174,9 @@ class AISignalIntegrator:
             adjustments_made=[],
         )
 
+        # ========== 诊断日志：记录每个阶段的置信度 ==========
+        conf_history = [(0, "原始", original_confidence)]
+
         # 1. AdaptiveBuyCondition
         if self.adaptive_buy and self.config.enable_adaptive_buy:
             try:
@@ -191,6 +194,7 @@ class AISignalIntegrator:
                     )
 
                 result.price_level = buy_result.mode
+                conf_history.append((1, "AdaptiveBuy", original_confidence))
 
             except Exception as e:
                 logger.warning(f"AdaptiveBuyCondition处理失败: {e}")
@@ -214,6 +218,7 @@ class AISignalIntegrator:
 
                 original_confidence = optimized.confidence
                 result.optimized_signal = optimized
+                conf_history.append((2, "SignalOptimizer", original_confidence))
 
                 # 更新价格历史
                 self.signal_optimizer.update_price_history(price)
@@ -241,13 +246,21 @@ class AISignalIntegrator:
 
                 # 如果是高风险，降低置信度
                 if btc_result.is_high_risk and original_signal == "BUY":
+                    old_conf = original_confidence
                     original_confidence *= 0.7
-                    result.adjustments_made.append("BTC检测: 高位风险，置信度降低30%")
+                    result.adjustments_made.append(
+                        f"BTC检测: 高位风险，置信度降低30% ({old_conf:.0%}→{original_confidence:.0%})"
+                    )
+                    conf_history.append((3, "BTC高位", original_confidence))
 
                 # 如果是低机会，增加置信度
                 if btc_result.is_low_opportunity and original_signal == "BUY":
+                    old_conf = original_confidence
                     original_confidence *= 1.15
-                    result.adjustments_made.append("BTC检测: 低位机会，置信度增加15%")
+                    result.adjustments_made.append(
+                        f"BTC检测: 低位机会，置信度增加15% ({old_conf:.0%}→{original_confidence:.0%})"
+                    )
+                    conf_history.append((3, "BTC低位", original_confidence))
 
             except Exception as e:
                 logger.warning(f"BTC价格检测处理失败: {e}")
@@ -277,6 +290,7 @@ class AISignalIntegrator:
                     )
 
                 original_confidence = optimized.adjusted_confidence
+                conf_history.append((4, "HighPrice", original_confidence))
 
             except Exception as e:
                 logger.warning(f"HighPriceBuyOptimizer处理失败: {e}")
@@ -284,6 +298,14 @@ class AISignalIntegrator:
         # 5. 最终结果
         result.final_signal = original_signal
         result.final_confidence = min(max(original_confidence, 0.35), 0.95)
+
+        # 记录置信度变化历史
+        conf_history.append((5, "最终", result.final_confidence))
+
+        # 打印诊断日志
+        logger.info("[信号诊断] 置信度变化流程:")
+        for stage, name, conf in conf_history:
+            logger.info(f"  [{stage}] {name}: {conf:.1%}")
 
         # 记录最终结果
         logger.info(
