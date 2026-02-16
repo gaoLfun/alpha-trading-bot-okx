@@ -34,7 +34,7 @@ class FusionConfig:
     """融合配置"""
 
     strategy: FusionStrategyType = FusionStrategyType.CONSENSUS_BOOSTED
-    threshold: float = 0.38
+    threshold: float = 0.36
     consensus_boost_full: float = 1.4
     consensus_boost_partial: float = 1.2
     default_confidence: int = 70
@@ -44,7 +44,7 @@ class FusionConfig:
     rsi_rebound_high: float = 72
     rsi_high_suppression: float = 75
     enable_rebound_mode: bool = True
-    buy_bias: float = 1.1
+    buy_bias: float = 1.15
 
 
 @dataclass
