@@ -88,13 +88,13 @@ class AIClient:
         self.api_keys = api_keys or {}
         self._get_fusion_strategy = get_fusion_strategy
 
-        # 初始化信号集成器
+        # 初始化信号集成器 - 调整配置以产生更多交易
         self.integrator = AISignalIntegrator(
             IntegrationConfig(
                 enable_adaptive_buy=True,
                 enable_signal_optimizer=True,
-                enable_high_price_filter=True,
-                enable_btc_detector=True,
+                enable_high_price_filter=False,  # 关闭高位过滤，允许更多买入
+                enable_btc_detector=False,  # 关闭BTC价格检测限制
             )
         )
 
