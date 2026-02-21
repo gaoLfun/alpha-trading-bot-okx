@@ -214,6 +214,37 @@ class HighPriceBuyOptimizer:
             adjustment_reason += f"接近近期高点: 置信度降低{8 * penalty_factor:.0f}%; "
             penalty_applied = True
 
+        # 6.7 低位/超卖奖励机制（只有奖励，没有惩罚上限）
+        reward_applied = False
+        reward_reason = ""
+
+        # 6.7.1 极低价位奖励
+        if price_position < 20:
+            reward = 0.15
+            adjusted_confidence += reward
+            reward_reason += (
+                f"极低位(位置{price_position:.1f}%<20%): 置信度+{reward * 100:.0f}%; "
+            )
+            reward_applied = True
+        # 6.7.2 超卖奖励
+        elif rsi < 30:
+            reward = 0.10
+            adjusted_confidence += reward
+            reward_reason += f"超卖(RSI={rsi:.1f}<30): 置信度+{reward * 100:.0f}%; "
+            reward_applied = True
+
+        # 6.7.3 强趋势奖励
+        if trend_strength > 0.6:
+            reward = 0.10
+            adjusted_confidence += reward
+            reward_reason += (
+                f"强趋势(强度={trend_strength:.2f}>0.6): 置信度+{reward * 100:.0f}%; "
+            )
+            reward_applied = True
+
+        if reward_applied:
+            adjustment_reason += reward_reason
+
         # 7. 综合判断
         # 原始可以买入，且优化后置信度仍然足够
         should_buy = original_can_buy and adjusted_confidence >= 0.50
