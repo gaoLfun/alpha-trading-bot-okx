@@ -120,6 +120,10 @@ class PositionManager:
         """
         计算止损价
 
+        止损逻辑:
+        1. 新建仓/亏损状态: 止损价 = 当前价格 × 99.5% (确保低于当前价)
+        2. 盈利状态(当前价 > 入场价): 止损价 = 当前价格 × 99.8% (追踪止损)
+
         Args:
             current_price: 当前价格
 
@@ -129,19 +133,20 @@ class PositionManager:
         if self._position is None or self._entry_price == 0:
             return 0.0
 
-        if current_price < self._entry_price:
-            # 亏损时使用较大的止损比例
-            stop_percent = self.config.stop_loss.stop_loss_percent
-            stop_price = self._entry_price * (1 - stop_percent)
+        # 新建仓/亏损状态: 止损价 = 当前价格 × 99.5%
+        # 使用当前价格而非入场价，确保止损价低于当前价格，避免OKX拒绝
+        if current_price <= self._entry_price:
+            stop_percent = 0.005  # 0.5% 止损 = 99.5%
+            stop_price = current_price * (1 - stop_percent)
             logger.debug(
-                f"[止损计算] 亏损状态: 当前价({current_price}) < 入场价({self._entry_price}), "
+                f"[止损计算] 亏损/新建仓: 当前价({current_price}) <= 入场价({self._entry_price}), "
                 f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
             )
             return stop_price
         else:
-            # 盈利时使用较小的止损比例（锁定利润）
-            stop_percent = self.config.stop_loss.stop_loss_profit_percent
-            stop_price = self._entry_price * (1 - stop_percent)
+            # 盈利状态: 止损价 = 当前价格 × 99.8% (追踪止损，只升不降)
+            stop_percent = 0.002  # 0.2% 止损 = 99.8%
+            stop_price = current_price * (1 - stop_percent)
             logger.debug(
                 f"[止损计算] 盈利状态: 当前价({current_price}) > 入场价({self._entry_price}), "
                 f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"

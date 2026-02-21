@@ -296,11 +296,10 @@ class TradingBot:
             amount, price, self.config.exchange.symbol
         )
 
-        # 新开仓使用亏损止损比例 (0.5%)
-        stop_percent = self.config.stop_loss.stop_loss_percent
-        stop_price = price * (1 - stop_percent)
+        # 新开仓使用 99.5% 止损 (0.5% 止损比例)
+        stop_price = price * 0.995
         logger.info(
-            f"[止损计算] 入场价={price}, 止损比例={stop_percent * 100}%(新开仓), 止损价={stop_price:.1f}"
+            f"[止损计算] 入场价={price}, 止损比例=0.5%(新开仓), 止损价={stop_price:.1f}"
         )
 
         stop_order_id = await self._exchange.create_stop_loss(
@@ -360,25 +359,24 @@ class TradingBot:
         if not has_existing_stop_order:
             logger.info("[止损更新] 当前无止损单，直接创建")
             logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
-            stop_order_id = await self._exchange.create_stop_loss(
-                symbol=self.config.exchange.symbol,
-                side="sell",
-                amount=position.amount,
-                stop_price=new_stop,
+            stop_order_id = await self._create_stop_loss_with_retry(
+                position.amount, new_stop, current_price
             )
-            self.position_manager.set_stop_order(stop_order_id)
-            logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
+            if stop_order_id:
+                self.position_manager.set_stop_order(stop_order_id)
+                logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
+            else:
+                logger.error("[止损更新] 止损单创建失败，已达最大重试次数")
             return
 
         tolerance = self.config.stop_loss.stop_loss_tolerance_percent
         entry_price = position.entry_price
 
+        # 计算旧止损价 (用于比较变化率)
         if current_price >= entry_price:
-            old_stop = entry_price * (
-                1 - self.config.stop_loss.stop_loss_profit_percent
-            )
+            old_stop = current_price * 0.998  # 盈利状态
         else:
-            old_stop = entry_price * (1 - self.config.stop_loss.stop_loss_percent)
+            old_stop = current_price * 0.995  # 亏损/新建仓状态
 
         price_diff_percent = abs(new_stop - old_stop) / old_stop if old_stop > 0 else 1
 
@@ -406,6 +404,58 @@ class TradingBot:
 
         self.position_manager.set_stop_order(stop_order_id)
         logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
+
+    async def _create_stop_loss_with_retry(
+        self,
+        amount: float,
+        stop_price: float,
+        current_price: float,
+        max_retries: int = 2,
+    ) -> Optional[str]:
+        """
+        创建止损单（带重试机制）
+
+        如果止损价高于当前价格导致失败，自动降低止损价重试
+
+        Args:
+            amount: 合约数量
+            stop_price: 初始止损价
+            current_price: 当前价格
+            max_retries: 最大重试次数
+
+        Returns:
+            止损单ID，失败返回None
+        """
+        for attempt in range(max_retries + 1):
+            try:
+                stop_order_id = await self._exchange.create_stop_loss(
+                    symbol=self.config.exchange.symbol,
+                    side="sell",
+                    amount=amount,
+                    stop_price=stop_price,
+                )
+                if stop_order_id:
+                    return stop_order_id
+
+                if attempt < max_retries:
+                    stop_price = stop_price * 0.998
+                    logger.warning(
+                        f"[止损重试] 第{attempt + 1}次失败，尝试降低止损价至 {stop_price:.1f}"
+                    )
+            except Exception as e:
+                error_msg = str(e)
+                if "SL trigger price must be less than the last price" in error_msg:
+                    if attempt < max_retries:
+                        stop_price = stop_price * 0.998
+                        logger.warning(
+                            f"[止损重试] 止损价过高，第{attempt + 1}次重试，"
+                            f"降低至 {stop_price:.1f} (当前价={current_price:.1f})"
+                        )
+                        continue
+                logger.error(f"[止损重试] 创建止损单失败: {e}")
+                break
+
+        return None
 
     async def _close_position(self, price: float) -> None:
         """平仓"""
