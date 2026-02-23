@@ -381,15 +381,10 @@ class TradingBot:
         local_stop_order_id = self.position_manager.stop_order_id
         exchange_stop_order_id = await self._get_existing_stop_order_id()
 
-        # 修复: 本地有记录但交易所查不到时，视为止损单已失效，需要重新创建
-        if local_stop_order_id and not exchange_stop_order_id:
-            logger.warning(
-                f"[止损更新] 本地记录止损单 {local_stop_order_id} 但交易所已不存在，视为失效，将重新创建"
-            )
-            self.position_manager._stop_order_id = None
-            local_stop_order_id = None
-
-        if exchange_stop_order_id and not local_stop_order_id:
+        # 修复重复创建问题：优先信任本地记录，减少交易所查询
+        # 如果本地有记录，以本地记录为准进行容错比较
+        # 只有在本地没有记录时才尝试从交易所恢复
+        if not local_stop_order_id and exchange_stop_order_id:
             logger.info(f"[止损更新] 发现交易所现有止损单: {exchange_stop_order_id}")
             self.position_manager.set_stop_order(exchange_stop_order_id)
             local_stop_order_id = exchange_stop_order_id
