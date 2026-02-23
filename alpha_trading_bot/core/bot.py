@@ -428,13 +428,25 @@ class TradingBot:
             )
             return
 
-        # 取消旧止损单并创建新止损单
+        # 以交易所为主导：先查询交易所当前有效的止损单
         old_stop_order_id = self.position_manager.stop_order_id
-        if old_stop_order_id:
-            logger.info(f"[止损更新] 取消旧止损单: {old_stop_order_id}")
-            await self._exchange.cancel_order(
-                str(old_stop_order_id), self.config.exchange.symbol
+        current_existing_id = await self._get_existing_stop_order_id()
+        
+        # 规则1: 交易所存在且和本地旧订单ID一致 -> 取消旧订单 -> 创建新订单
+        # 规则2: 交易所不存在，本地旧订单存在 -> 无需取消，直接创建新订单
+        # 规则3: 交易所存在，本地不存在 -> 取消交易所订单 -> 创建新订单
+        
+        if current_existing_id:
+            # 交易所存在有效订单，需要取消（无论本地有没有）
+            logger.info(f"[止损更新] 取消交易所现有止损单: {current_existing_id}")
+            cancel_success = await self._exchange.cancel_order(
+                str(current_existing_id), self.config.exchange.symbol
             )
+            if not cancel_success:
+                logger.warning(f"[止损更新] 取消止损单失败: {current_existing_id}")
+        elif old_stop_order_id and not current_existing_id:
+            # 交易所不存在，但本地有记录，说明本地记录已失效
+            logger.info(f"[止损更新] 本地记录 {old_stop_order_id} 已失效，交易所无订单")
 
         logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
         stop_order_id = await self._exchange.create_stop_loss(

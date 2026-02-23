@@ -249,7 +249,12 @@ class OrderService:
             logger.info(f"[订单取消] 订单取消成功: {order_id}")
             return True
         except Exception as e:
-            logger.error(f"[订单取消] 取消订单失败: {order_id}, 错误={e}")
+            error_msg = str(e)
+            # 订单已成交/取消/不存在时，取消失败是正常的，降低日志级别
+            if "51400" in error_msg or "does not exist" in error_msg or "filled" in error_msg:
+                logger.warning(f"[订单取消] 订单已不存在: {order_id}, 错误={error_msg}")
+            else:
+                logger.error(f"[订单取消] 取消订单失败: {order_id}, 错误={error_msg}")
             return False
 
     async def get_order_status(self, order_id: str, symbol: str) -> OrderResult:
