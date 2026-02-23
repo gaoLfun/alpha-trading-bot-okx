@@ -61,11 +61,12 @@ class PositionManager:
                 )
                 self._entry_price = state.position.entry_price
                 self._stop_order_id = state.position.stop_order_id
+                self._last_stop_price = state.position.last_stop_price  # 恢复上次止损价
 
                 logger.info(
                     f"[持久化恢复] 已恢复持仓: {self._position.symbol} "
                     f"{self._position.side} {self._position.amount}@{self._position.entry_price}, "
-                    f"止损单: {self._stop_order_id}"
+                    f"止损单: {self._stop_order_id}, 上次止损价: {self._last_stop_price}"
                 )
         except Exception as e:
             logger.warning(f"[持久化恢复] 恢复状态失败: {e}")
@@ -112,6 +113,7 @@ class PositionManager:
                 amount=position_data["amount"],
                 entry_price=position_data["entry_price"],
                 stop_order_id=self._stop_order_id,
+                last_stop_price=self._last_stop_price,
             )
 
             logger.info(
@@ -242,6 +244,7 @@ class PositionManager:
             amount=amount,
             entry_price=entry_price,
             stop_order_id=self._stop_order_id,
+            last_stop_price=self._last_stop_price,
         )
 
         # 记录开仓交易

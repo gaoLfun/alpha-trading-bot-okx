@@ -31,6 +31,7 @@ class PositionState:
     entry_price: float
     unrealized_pnl: float = 0.0
     stop_order_id: Optional[str] = None
+    last_stop_price: float = 0.0  # 上次设置的止损价
     updated_at: str = ""
 
 
@@ -92,6 +93,7 @@ class StatePersistence:
         entry_price: float,
         stop_order_id: Optional[str] = None,
         unrealized_pnl: float = 0.0,
+        last_stop_price: float = 0.0,
     ) -> bool:
         """
         保存持仓状态
@@ -119,6 +121,7 @@ class StatePersistence:
                 entry_price=entry_price,
                 unrealized_pnl=unrealized_pnl,
                 stop_order_id=stop_order_id,
+                last_stop_price=last_stop_price,
                 updated_at=datetime.now().isoformat(),
             )
             state.last_trade_time = datetime.now().isoformat()
@@ -215,6 +218,7 @@ class StatePersistence:
                         entry_price=pos_data.get("entry_price", 0),
                         unrealized_pnl=pos_data.get("unrealized_pnl", 0),
                         stop_order_id=pos_data.get("stop_order_id"),
+                        last_stop_price=pos_data.get("last_stop_price", 0),
                         updated_at=pos_data.get("updated_at", ""),
                     )
 
