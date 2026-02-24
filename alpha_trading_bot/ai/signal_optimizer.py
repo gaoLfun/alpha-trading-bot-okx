@@ -57,11 +57,11 @@ class OptimizedSignal:
 class OptimizerConfig:
     """优化器配置"""
 
-    # 信号优化参数调整为更积极以提高信号多样性
+    # 信号优化参数 - 适度放宽以增加信号多样性
     # 异常信号过滤
-    confidence_floor: float = 0.45  # 提高最低置信度阈值
+    confidence_floor: float = 0.42  # 0.45→0.42，轻微降低门槛
     confidence_ceiling: float = 0.95  # 保持最高置信度
-    rapid_change_threshold: float = 0.25  # 降低快速变化阈值
+    rapid_change_threshold: float = 0.20  # 0.25→0.20，更敏感于信号变化
 
     # 信号平滑
     smoothing_window: int = 2  # 减小平滑窗口
