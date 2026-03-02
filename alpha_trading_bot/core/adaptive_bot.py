@@ -318,7 +318,10 @@ class AdaptiveTradingBot:
                     f"[规则] 将应用 {len(rule_result['triggered_rules'])} 个规则: "
                     f"{rule_result['triggered_rules']}"
                 )
-
+            
+            # 将 has_position 传入 market_data 供决策使用
+            market_data["has_position"] = has_position
+            
             # 10. 信号决策
             final_signal = self._make_decision(ai_signal, selected, market_data)
 
@@ -396,12 +399,23 @@ class AdaptiveTradingBot:
             action = "open"
             reason = "AI信号买入"
         elif ai_signal.upper() == "SELL":
-            if selected.signal.upper() == "SELL":
+            # 检查是否可以做空 (无持仓时)
+            # 注意: 这里需要调用者判断 has_position，后续会传入
+            # 暂时通过 market_data 传递是否有持仓的信息
+            has_position = market_data.get("has_position", False)
+            
+            if not has_position and self.config.trading.allow_short_selling:
+                # 无持仓 + 允许做空 = 开空仓
+                action = "sell"
+                reason = "AI信号做空"
+            elif selected.signal.upper() == "SELL":
+                # 有持仓 + SELL信号 = 平仓
                 action = "close"
                 reason = "AI+策略共振卖出"
             else:
                 action = "close"
                 reason = "AI信号卖出"
+
         else:
             # HOLD信号，参考策略选择
             if selected.signal.upper() != "HOLD":
@@ -464,13 +478,23 @@ class AdaptiveTradingBot:
 
         # 类型断言
         assert self._exchange is not None, "Exchange client not initialized"
+        # 开仓操作: action = "open" (做多) 或 action = "sell" (做空)
+        if action in ["open", "sell"]:
 
-        if action == "open":
             if has_position:
                 logger.info("[执行] 已有持仓，跳过开仓")
                 return
 
-            # 开仓
+            # 获取持仓方向 (基于 allow_short_selling 和信号)
+            # action = "open" 表示做多, action = "sell" 表示做空
+            if action == "sell" and self.config.trading.allow_short_selling:
+                position_side = "short"
+            else:
+                position_side = "long"  # 默认做多
+
+            logger.info(f"[执行] 开仓: 方向={position_side}, 价格={current_price}")
+            logger.info(f"[执行] 止损: {risk_params.get('stop_loss_price', '未设置')}")
+            logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
             logger.info(f"[执行] 开仓: 价格={current_price}")
             logger.info(f"[执行] 止损: {risk_params.get('stop_loss_price', '未设置')}")
             logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
@@ -495,19 +519,32 @@ class AdaptiveTradingBot:
             amount = risk_params.get("suggested_position", 0.01)
             stop_loss_price = risk_params.get("stop_loss_price")
 
-            # 下市价买入单开仓
+            # 下市价单开仓 (根据 position_side 决定买入还是卖出)
+            order_side = "buy" if position_side == "long" else "sell"
+            
             order_id = await self._exchange.create_order(
                 symbol=symbol,
-                side="buy",
+                side=order_side,
                 amount=amount,
-                order_type="market",
             )
-            order_id = await self._exchange.create_order(
+
+            # P0: 验证订单是否创建成功
+            if not order_id:
+                logger.error("[执行] 开仓订单创建失败！尝试重新获取持仓状态验证")
+                await self._verify_and_recover_position()
+                return
+
+            # 开仓成功后，更新持仓信息 (支持做多和做空)
+            self.position_manager.update_position(
+                amount=amount,
+                entry_price=current_price,
                 symbol=symbol,
-                side="buy",
-                amount=amount,
-                order_type="market",
+                side=position_side,  # 传递持仓方向
             )
+
+
+#YV|            # P0: 验证订单是否创建成功
+
             # P0: 验证订单是否创建成功
             if not order_id:
                 logger.error("[执行] 开仓订单创建失败！尝试重新获取持仓状态验证")

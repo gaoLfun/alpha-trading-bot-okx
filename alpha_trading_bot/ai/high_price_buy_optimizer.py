@@ -25,6 +25,39 @@ logger = logging.getLogger(__name__)
 class HighPriceBuyConfig:
     """高位买入优化配置"""
 
+    # 价格位置阈值（根据价格水平调整）- 放宽以允许更多交易
+    price_position_threshold_low: float = 35   # 低价位时
+    price_position_threshold_mid: float = 55  # 中价位时：40→55（大幅放宽）
+    price_position_threshold_high: float = 65  # 高价位时：45→65（大幅放宽）
+
+    # 价格水平划分（基于近期价格范围的百分比）
+    price_level_mid_threshold: float = 0.70  # 价格>近期70%为中高位：65→70（放宽）
+    price_level_high_threshold: float = 0.85  # 价格>近期85%为高位：82→85（放宽）
+
+    # RSI阈值（根据价格水平调整）
+    rsi_threshold_low: float = 50   # 低价位RSI上限
+    rsi_threshold_mid: float = 55  # 中价位RSI上限
+    rsi_threshold_high: float = 60  # 高价位RSI上限
+
+    # 趋势强度要求（高位时需要更强趋势）- 降低以允许更多交易
+    trend_strength_threshold_low: float = 0.05  # 低价位趋势强度：0.10→0.05
+    trend_strength_threshold_mid: float = 0.10  # 中价位趋势强度：0.20→0.10
+    trend_strength_threshold_high: float = 0.20  # 高价位趋势强度：0.30→0.20
+
+    # 价格位置上升惩罚 - 大幅放宽
+    price_position_rise_threshold: float = (
+        0.50  # 价格上涨位置>50%时惩罚：30%→50%（大幅放宽）
+    )
+    price_position_rise_penalty: float = 0.05  # 惩罚幅度：8%→5%（减轻）
+
+    # 近期高点检测 - 放宽
+    recent_high_periods: int = 10  # 近期高点周期数
+    high_proximity_threshold: float = (
+        0.12  # 价格>近期高点12%以内为接近高点：8%→12%（放宽）
+    )
+class HighPriceBuyConfig:
+    """高位买入优化配置"""
+
     # 价格位置阈值（根据价格水平调整）
     price_position_threshold_low: float = 35  # 低价位时：30→35（放宽）
     price_position_threshold_mid: float = 40  # 中价位时：35→40（放宽）
@@ -249,6 +282,15 @@ class HighPriceBuyOptimizer:
             adjustment_reason += reward_reason
 
         # 7. 综合判断
+        # 原始可以买入，且优化后置信度仍然足够 - 降低门槛以允许更多交易
+        should_buy = original_can_buy and adjusted_confidence >= 0.40
+
+        # 如果是 BUY 信号，有惩罚时降低买入门槛（不要过于严格）
+        if penalty_applied:
+            if is_original_buy and adjusted_confidence >= 0.35:
+                should_buy = True  # BUY 信号放宽门槛
+            elif not is_original_buy and adjusted_confidence >= 0.40:
+                should_buy = False  # 非 BUY 信号保持严格
         # 原始可以买入，且优化后置信度仍然足够
         should_buy = original_can_buy and adjusted_confidence >= 0.50
 

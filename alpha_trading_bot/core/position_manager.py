@@ -77,6 +77,21 @@ class PositionManager:
         return self._position
 
     @property
+    def position_side(self) -> str:
+        """获取持仓方向 (long/short/none)"""
+        if self._position is None:
+            return "none"
+        return self._position.side
+
+    @property
+    def entry_price(self) -> float:
+        """获取入场价"""
+        return self._entry_price
+    def position(self) -> Optional[Position]:
+        """获取当前持仓"""
+        return self._position
+
+    @property
     def entry_price(self) -> float:
         """获取入场价"""
         return self._entry_price
@@ -126,6 +141,142 @@ class PositionManager:
 
     def calculate_stop_price(self, current_price: float) -> float:
         """
+        计算止损价 (做多仓位)
+
+        止损逻辑:
+        1. 新建仓/亏损状态: 止损价 = 当前价格 × 99.5% (确保低于当前价)
+        2. 盈利状态(当前价 > 入场价): 止损价 = 当前价格 × 99.8% (追踪止损)
+
+        Args:
+            current_price: 当前价格
+
+        Returns:
+            止损价 (做多) 或 0.0 (无效)
+        """
+        if self._position is None or self._entry_price == 0:
+            return 0.0
+
+        # 只处理做多仓位
+        if self._position.side != "long":
+            return 0.0
+
+        # 新建仓/亏损状态: 止损价 = 当前价格 × 99.5%
+        # 使用当前价格而非入场价，确保止损价低于当前价格，避免OKX拒绝
+        if current_price <= self._entry_price:
+            stop_percent = 0.005  # 0.5% 止损 = 99.5%
+            stop_price = current_price * (1 - stop_percent)
+            logger.debug(
+                f"[止损计算-做多] 亏损/新建仓: 当前价({current_price}) <= 入场价({self._entry_price}), "
+                f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
+            )
+            return stop_price
+        else:
+            # 盈利状态: 止损价 = 当前价格 × 99.8% (追踪止损，只升不降)
+            stop_percent = 0.002  # 0.2% 止损 = 99.8%
+            stop_price = current_price * (1 - stop_percent)
+            logger.debug(
+                f"[止损计算-做多] 盈利状态: 当前价({current_price}) > 入场价({self._entry_price}), "
+                f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
+            )
+            return stop_price
+
+    def calculate_short_stop_price(self, current_price: float) -> float:
+        """
+        计算做空仓位的止损价 (做空仓位)
+
+        做空止损逻辑:
+        - 做空赚钱时(价格下跌)，止损价 = 当前价格 × 100.5% (高于当前价)
+        - 做空亏钱时(价格上涨)，止损价 = 当前价格 × 101.0% (追高)
+
+        Args:
+            current_price: 当前价格
+
+        Returns:
+            止损价 (做空) 或 0.0 (无效)
+        """
+        if self._position is None or self._entry_price == 0:
+            return 0.0
+
+        # 只处理做空仓位
+        if self._position.side != "short":
+            return 0.0
+
+        # 做空赚钱时(价格下跌): 止损价 = 当前价格 × 100.5%
+        if current_price >= self._entry_price:
+            stop_percent = 0.005  # 0.5% 止损 = 100.5%
+            stop_price = current_price * (1 + stop_percent)
+            logger.debug(
+                f"[止损计算-做空] 盈利(价格下跌): 当前价({current_price}) >= 入场价({self._entry_price}), "
+                f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
+            )
+            return stop_price
+        else:
+            # 做空亏钱时(价格上涨): 止损价 = 当前价格 × 101.0%
+            stop_percent = 0.010  # 1.0% 止损 = 101.0%
+            stop_price = current_price * (1 + stop_percent)
+            logger.debug(
+                f"[止损计算-做空] 亏损(价格上涨): 当前价({current_price}) < 入场价({self._entry_price}), "
+                f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
+            )
+            return stop_price
+
+    def calculate_take_profit_price(self, current_price: float) -> float:
+        """
+        计算止盈价 (做多仓位)
+
+        止盈逻辑:
+        - 盈利达到目标时自动平仓
+
+        Args:
+            current_price: 当前价格
+
+        Returns:
+            止盈价 (做多)
+        """
+        if self._position is None or self._entry_price == 0:
+            return 0.0
+
+        # 只处理做多仓位
+        if self._position.side != "long":
+            return 0.0
+
+        # 止盈价 = 入场价 × 1.06 (6% 止盈)
+        take_profit_percent = 0.06
+        take_profit_price = self._entry_price * (1 + take_profit_percent)
+        logger.debug(
+            f"[止盈计算-做多] 入场价:{self._entry_price}, 止盈比例:{take_profit_percent * 100}%, 止盈价:{take_profit_price}"
+        )
+        return take_profit_price
+
+    def calculate_short_take_profit_price(self, current_price: float) -> float:
+        """
+        计算做空仓位的止盈价 (做空仓位)
+
+        做空止盈逻辑:
+        - 价格下跌到目标价位时自动平仓获利
+        - 止盈价 = 入场价 × 0.94 (6% 止盈，即价格下跌6%)
+
+        Args:
+            current_price: 当前价格
+
+        Returns:
+            止盈价 (做空)
+        """
+        if self._position is None or self._entry_price == 0:
+            return 0.0
+
+        # 只处理做空仓位
+        if self._position.side != "short":
+            return 0.0
+
+        # 止盈价 = 入场价 × 0.94 (6% 止盈，即价格下跌6%)
+        take_profit_percent = 0.06
+        take_profit_price = self._entry_price * (1 - take_profit_percent)
+        logger.debug(
+            f"[止盈计算-做空] 入场价:{self._entry_price}, 止盈比例:{take_profit_percent * 100}%, 止盈价:{take_profit_price}"
+        )
+        return take_profit_price
+        """
         计算止损价
 
         止损逻辑:
@@ -162,6 +313,40 @@ class PositionManager:
             return stop_price
 
     def log_stop_loss_info(self, current_price: float, new_stop: float) -> None:
+        """记录止损信息（支持做多和做空）"""
+        if self._position is None:
+            return
+
+        side = self._position.side
+
+        if side == "long":
+            # 做多仓位的盈亏计算
+            if current_price < self._entry_price:
+                pnl = (current_price - self._entry_price) / self._entry_price * 100
+                logger.info(
+                    f"[止损监控-做多] 亏损持仓: 当前价={current_price}, 入场价={self._entry_price}, "
+                    f"亏损={pnl:.2f}%, 止损价={new_stop}"
+                )
+            else:
+                pnl = (current_price - self._entry_price) / self._entry_price * 100
+                logger.info(
+                    f"[止损监控-做多] 盈利持仓: 当前价={current_price}, 入场价={self._entry_price}, "
+                    f"盈利={pnl:.2f}%, 止损价={new_stop}"
+                )
+        elif side == "short":
+            # 做空仓位的盈亏计算 (与做多相反)
+            if current_price > self._entry_price:
+                pnl = (self._entry_price - current_price) / self._entry_price * 100
+                logger.info(
+                    f"[止损监控-做空] 亏损持仓: 当前价={current_price}, 入场价={self._entry_price}, "
+                    f"亏损={pnl:.2f}%, 止损价={new_stop}"
+                )
+            else:
+                pnl = (self._entry_price - current_price) / self._entry_price * 100
+                logger.info(
+                    f"[止损监控-做空] 盈利持仓: 当前价={current_price}, 入场价={self._entry_price}, "
+                    f"盈利={pnl:.2f}%, 止损价={new_stop}"
+                )
         """记录止损信息"""
         if current_price < self._entry_price:
             pnl = (current_price - self._entry_price) / self._entry_price * 100
@@ -234,7 +419,52 @@ class PositionManager:
         # 持久化清空
         self._persistence.clear_position()
 
-    def update_position(self, amount: float, entry_price: float, symbol: str) -> None:
+    def update_position(self, amount: float, entry_price: float, symbol: str, side: str = "long") -> None:
+        """
+        更新持仓信息（开仓后调用，并持久化）
+
+        Args:
+            amount: 持仓数量
+            entry_price: 入场价格
+            symbol: 交易对
+            side: 持仓方向 (long=做多, short=做空)
+        """
+        # 验证 side 参数
+        if side not in ["long", "short"]:
+            logger.warning(f"[持仓更新] 无效的持仓方向: {side}, 默认为做多")
+            side = "long"
+
+        self._entry_price = entry_price
+        self._position = Position(
+            symbol=symbol,
+            side=side,
+            amount=amount,
+            entry_price=entry_price,
+        )
+
+        # 持久化保存
+        self._persistence.save_position(
+            symbol=symbol,
+            side=side,
+            amount=amount,
+            entry_price=entry_price,
+            stop_order_id=self._stop_order_id,
+            last_stop_price=self._last_stop_price,
+        )
+
+        # 记录开仓交易
+        self._persistence.record_trade(
+            trade_type="open",
+            symbol=symbol,
+            side=side,
+            amount=amount,
+            price=entry_price,
+            reason="signal_open",
+        )
+
+        logger.info(
+            f"[持仓更新] 开仓成功: {symbol}, 方向:{side}, 数量:{amount}, 入场价:{entry_price}"
+        )
         """更新持仓信息（开仓后调用，并持久化）"""
         self._entry_price = entry_price
         self._position = Position(
