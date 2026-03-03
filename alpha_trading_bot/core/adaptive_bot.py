@@ -833,13 +833,13 @@ max_retries=2,
         """创建止损单（带重试机制）"""
         for attempt in range(max_retries + 1):
             try:
+                # 根据持仓方向决定止损单的触发方向
+                # 做多(long): 价格下跌触发卖出 -> side="sell"
+                # 做空(short): 价格上涨触发买入 -> side="buy"
+                stop_side = "sell" if position_side == "long" else "buy"
                 stop_order_id = await self._exchange.create_stop_loss(
                     symbol=self._exchange.symbol,
-                    #MM|                    # 根据持仓方向决定止损单的触发方向
-#MM|                    # 做多(long): 价格下跌触发卖出 -> side="sell"
-#MM|                    # 做空(short): 价格上涨触发买入 -> side="buy"
-#MM|                    stop_side = "sell" if position_side == "long" else "buy"
-#MM|                    side=stop_side,
+                    side=stop_side,
                     amount=amount,
                     stop_price=stop_price,
                 )
@@ -911,7 +911,6 @@ max_retries=2,
 
     async def _update_stop_loss(self, current_price: float, position_data: Dict[str, Any]) -> None:
         """更新止损订单（带容错判断，避免频繁更新）"""
-        """更新止损订单（带容错判断，避免频繁更新）"""
         params = self.param_manager.get_current_params()
         stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
         position_side = position_data.get("side", "long")
@@ -940,19 +939,18 @@ max_retries=2,
                 logger.info(
                     f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%, 跳过更新"
                 )
-                #MM|        
-#MM|        # 根据方向进行不同的容错检查
-#MM|        if old_stop > 0:
-#MM|            if position_side == "long":
-#MM|                # 做多: 止损价应该上升才更新
-#MM|                if new_stop_price <= old_stop:
-#MM|                    logger.info(f"[止损更新-做多] 止损价未上升({new_stop_price:.1f} <= {old_stop:.1f}), 跳过更新")
-#MM|                    return
-#MM|            else:
-#MM|                # 做空: 止损价应该下降才更新
-#MM|                if new_stop_price >= old_stop:
-#MM|                    logger.info(f"[止损更新-做空] 止损价未下降({new_stop_price:.1f} >= {old_stop:.1f}), 跳过更新")
-#MM|                    return
+                # 根据方向进行不同的容错检查
+                if old_stop > 0:
+                    if position_side == "long":
+                        # 做多: 止损价应该上升才更新
+                        if new_stop_price <= old_stop:
+                            logger.info(f"[止损更新-做多] 止损价未上升({new_stop_price:.1f} <= {old_stop:.1f}), 跳过更新")
+                            return
+                    else:
+                        # 做空: 止损价应该下降才更新
+                        if new_stop_price >= old_stop:
+                            logger.info(f"[止损更新-做空] 止损价未下降({new_stop_price:.1f} >= {old_stop:.1f}), 跳过更新")
+                            return
 
         if existing_stop_id:
             logger.info(f"[止损更新] 取消现有止损单: {existing_stop_id}")
