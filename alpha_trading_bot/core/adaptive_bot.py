@@ -965,14 +965,16 @@ max_retries=2,
                 logger.error("[止损更新] 止损单创建失败")
             return
         
-        # === P3: 交易所有止损单，检查是否需要更新 ===
-        logger.info(f"[止损更新] 检测到交易所现有止损单: {existing_stop_id}")
         old_stop = self.position_manager.last_stop_price
         logger.info(f"[止损调试] current_price={current_price}, old_stop={old_stop}, new_stop={new_stop_price}")
         
-        if price_diff_percent < tolerance:
-            logger.info(f"[止损更新] 变化率:{price_diff_percent*100:.4f}% < 容错:{tolerance*100}%, 跳过更新")
-            return
+        # 容错检查：变化太小则跳过
+        if old_stop > 0:
+            tolerance = self.config.stop_loss.stop_loss_tolerance_percent
+            price_diff_percent = abs(new_stop_price - old_stop) / old_stop
+            if price_diff_percent < tolerance:
+                logger.info(f"[止损更新] 变化率:{price_diff_percent*100:.4f}% < 容错:{tolerance*100}%, 跳过更新")
+                return
         
         # === 止损价只能上升不能下跌（做多）===
         if position_side == "long":
