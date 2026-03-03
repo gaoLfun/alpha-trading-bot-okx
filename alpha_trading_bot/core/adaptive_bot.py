@@ -1077,6 +1077,24 @@ max_retries=2,
         try:
             algo_orders = await self._exchange.get_algo_orders(self._exchange.symbol)
             for order in algo_orders:
+                # CCXT 返回结构: order["info"] 包含 algoId 和 slTriggerPx
+                info = order.get("info", {})
+                algo_id = info.get("algoId")
+                
+                # 检查是否是止损单
+                if algo_id:
+                    stop_price = info.get("slTriggerPx") or info.get("stopLossPrice")
+                    if stop_price:
+                        logger.info(f"[止损查询] 找到现有止损单: algoId={algo_id}, 止损价={stop_price}")
+                        return str(algo_id)
+            logger.debug("[止损查询] 无现有止损单")
+        except Exception as e:
+            logger.warning(f"[止损查询] 查询失败: {e}")
+        return None
+        """查询交易所中现有的止损单ID"""
+        try:
+            algo_orders = await self._exchange.get_algo_orders(self._exchange.symbol)
+            for order in algo_orders:
                 if order.get("algoType") == "stop":
                     return order.get("orderId")
         except Exception as e:
