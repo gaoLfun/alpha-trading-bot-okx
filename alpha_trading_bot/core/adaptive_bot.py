@@ -970,24 +970,26 @@ max_retries=2,
         old_stop = self.position_manager.last_stop_price
         logger.info(f"[止损调试] current_price={current_price}, old_stop={old_stop}, new_stop={new_stop_price}")
         
-        # 容错检查：变化太小则跳过
-        if old_stop > 0:
-            tolerance = self.config.stop_loss.stop_loss_tolerance_percent
-            price_diff_percent = abs(new_stop_price - old_stop) / old_stop
-            if price_diff_percent < tolerance:
-                logger.info(f"[止损更新] 变化率:{price_diff_percent*100:.4f}% < 容错:{tolerance*100}%, 跳过更新")
+        if price_diff_percent < tolerance:
+            logger.info(f"[止损更新] 变化率:{price_diff_percent*100:.4f}% < 容错:{tolerance*100}%, 跳过更新")
+            return
+        
+        # === 止损价只能上升不能下跌（做多）===
+        if position_side == "long":
+            # 做多：止损价只能上升，不能下降
+            if old_stop > 0 and new_stop_price <= old_stop:
+                logger.info(f"[止损更新] 止损价未上升({new_stop_price:.1f} <= {old_stop:.1f}), 跳过更新")
+                return
+        else:
+            # 做空：止损价只能下降，不能上升
+            if old_stop > 0 and new_stop_price >= old_stop:
+                logger.info(f"[止损更新] 止损价未下降({new_stop_price:.1f} >= {old_stop:.1f}), 跳过更新")
                 return
         
-        # 方向检查：做多时止损价只能上升，做空时只能下降
-        if old_stop > 0:
-            if position_side == "long":
-                if new_stop_price <= old_stop:
-                    logger.info(f"[止损更新-做多] 止损价未上升({new_stop_price:.1f} <= {old_stop:.1f}), 跳过更新")
-                    return
-            else:
-                if new_stop_price >= old_stop:
-                    logger.info(f"[止损更新-做空] 止损价未下降({new_stop_price:.1f} >= {old_stop:.1f}), 跳过更新")
-                    return
+        # 取消旧止损单
+
+        # 取消旧止损单
+
         
         # 取消旧止损单
         logger.info(f"[止损更新] 取消现有止损单: {existing_stop_id}")
