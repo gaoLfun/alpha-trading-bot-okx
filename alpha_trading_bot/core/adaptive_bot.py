@@ -578,7 +578,7 @@ max_retries=2,
                     logger.info(f"[执行] 止损单已设置: {stop_loss_price}")
                 else:
                     logger.warning("[执行] 止损单创建失败")
-        elif action == "close":
+        elif action in ["close", "close_short"]:
             if not has_position:
                 logger.info("[执行] 无持仓，跳过平仓")
                 return
