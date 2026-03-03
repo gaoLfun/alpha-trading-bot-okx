@@ -916,6 +916,13 @@ max_retries=2,
             logger.warning(f"[平仓] 取消止损单失败: {e}")
     async def _update_stop_loss(self, current_price: float, position_data: Dict[str, Any]) -> None:
         """更新止损订单（带容错判断，避免频繁更新）"""
+        # === P0: 先查询交易所实际止损单状态 ===
+        existing_stop_id = await self._get_existing_stop_order_id()
+        if existing_stop_id:
+            logger.info(f"[止损更新] 检测到交易所现有止损单: {existing_stop_id}")
+        else:
+            logger.info("[止损更新] 交易所无现有止损单")
+
         params = self.param_manager.get_current_params()
 
         stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
