@@ -79,6 +79,12 @@ class ExchangeClient:
         """获取当前持仓"""
         return await self._account_service.get_position()
 
+    async def get_position_with_retry(
+        self, max_retries: int = 3, retry_delay: float = 1.0
+    ) -> Optional[Dict[str, Any]]:
+        """获取当前持仓（带重试机制）"""
+        return await self._account_service.get_position_with_retry(max_retries, retry_delay)
+
     async def get_ohlcv(self, timeframe: str = "1h", limit: int = 100):
         """获取K线数据"""
         return await self._market_data_service.get_ohlcv(timeframe, limit)
