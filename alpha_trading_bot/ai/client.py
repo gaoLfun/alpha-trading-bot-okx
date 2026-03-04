@@ -482,6 +482,10 @@ class AIClient:
                     timeout=timeout_config,
                 ) as response:
                     result = await response.json()
+                    # 检查响应是否包含有效的choices字段
+                    if "choices" not in result or not result["choices"]:
+                        logger.error(f"AI[{provider}]响应格式错误: {result}")
+                        raise ValueError(f"AI[{provider}]响应缺少choices字段: {result}")
                     content = result["choices"][0]["message"]["content"]
                     return content.strip()
 
