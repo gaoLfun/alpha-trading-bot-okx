@@ -25,69 +25,36 @@ logger = logging.getLogger(__name__)
 class HighPriceBuyConfig:
     """高位买入优化配置"""
 
-    # 价格位置阈值（根据价格水平调整）- 放宽以允许更多交易
-    price_position_threshold_low: float = 35   # 低价位时
-    price_position_threshold_mid: float = 55  # 中价位时：40→55（大幅放宽）
-    price_position_threshold_high: float = 65  # 高价位时：45→65（大幅放宽）
+    # 价格位置阈值 - 牛市中大幅放宽
+    price_position_threshold_low: float = 35  # 低价位时
+    price_position_threshold_mid: float = 55  # 中价位时
+    price_position_threshold_high: float = 70  # 高价位时：牛市中放宽
 
-    # 价格水平划分（基于近期价格范围的百分比）
-    price_level_mid_threshold: float = 0.70  # 价格>近期70%为中高位：65→70（放宽）
-    price_level_high_threshold: float = 0.85  # 价格>近期85%为高位：82→85（放宽）
+    # 价格水平划分
+    price_level_mid_threshold: float = 0.70  # 价格>近期70%为中高位
+    price_level_high_threshold: float = 0.85  # 价格>近期85%为高位
 
-    # RSI阈值（根据价格水平调整）
-    rsi_threshold_low: float = 50   # 低价位RSI上限
-    rsi_threshold_mid: float = 55  # 中价位RSI上限
-    rsi_threshold_high: float = 60  # 高价位RSI上限
+    # RSI阈值 - 牛市中大幅放宽
+    rsi_threshold_low: float = 50  # 低价位RSI上限
+    rsi_threshold_mid: float = 60  # 中价位RSI上限：牛市中放宽
+    rsi_threshold_high: float = 70  # 高价位RSI上限：牛市中大幅放宽
 
-    # 趋势强度要求（高位时需要更强趋势）- 降低以允许更多交易
-    trend_strength_threshold_low: float = 0.05  # 低价位趋势强度：0.10→0.05
-    trend_strength_threshold_mid: float = 0.10  # 中价位趋势强度：0.20→0.10
-    trend_strength_threshold_high: float = 0.20  # 高价位趋势强度：0.30→0.20
+    # 趋势强度要求 - 降低
+    trend_strength_threshold_low: float = 0.05  # 低价位趋势强度
+    trend_strength_threshold_mid: float = 0.10  # 中价位趋势强度
+    trend_strength_threshold_high: float = 0.15  # 高价位趋势强度：牛市中降低
 
     # 价格位置上升惩罚 - 大幅放宽
-    price_position_rise_threshold: float = (
-        0.50  # 价格上涨位置>50%时惩罚：30%→50%（大幅放宽）
-    )
-    price_position_rise_penalty: float = 0.05  # 惩罚幅度：8%→5%（减轻）
-
-    # 近期高点检测 - 放宽
-    recent_high_periods: int = 10  # 近期高点周期数
-    high_proximity_threshold: float = (
-        0.12  # 价格>近期高点12%以内为接近高点：8%→12%（放宽）
-    )
-class HighPriceBuyConfig:
-    """高位买入优化配置"""
-
-    # 价格位置阈值（根据价格水平调整）
-    price_position_threshold_low: float = 35  # 低价位时：30→35（放宽）
-    price_position_threshold_mid: float = 40  # 中价位时：35→40（放宽）
-    price_position_threshold_high: float = 45  # 高价位时：40→45（放宽）
-
-    # 价格水平划分（基于近期价格范围的百分比）
-    price_level_mid_threshold: float = 0.65  # 价格>近期65%为中高位：60→65（放宽）
-    price_level_high_threshold: float = 0.82  # 价格>近期82%为高位：80→82（放宽）
-
-    # RSI阈值（根据价格水平调整）
-    rsi_threshold_low: float = 50  # 低价位RSI上限（从35提高）
-    rsi_threshold_mid: float = 55  # 中价位RSI上限（从30提高）
-    rsi_threshold_high: float = 60  # 高价位RSI上限（从25提高）
-
-    # 趋势强度要求（高位时需要更强趋势）
-    trend_strength_threshold_low: float = 0.10  # 低价位趋势强度（从0.20降低）
-    trend_strength_threshold_mid: float = 0.20  # 中价位趋势强度（从0.30降低）
-    trend_strength_threshold_high: float = 0.30  # 高价位趋势强度（从0.45降低）
-
-    # 价格位置上升惩罚
-    price_position_rise_threshold: float = (
-        0.30  # 价格上涨位置>30%时惩罚：25%→30%（放宽）
-    )
-    price_position_rise_penalty: float = 0.08  # 惩罚幅度：10%→8%（减轻）
+    price_position_rise_threshold: float = 0.60  # 上涨位置>60%时惩罚
+    price_position_rise_penalty: float = 0.03  # 惩罚幅度降低
 
     # 近期高点检测
-    recent_high_periods: int = 10  # 近期高点周期数
-    high_proximity_threshold: float = (
-        0.08  # 价格>近期高点8%以内为接近高点：5%→8%（放宽）
-    )
+    recent_high_periods: int = 10
+    high_proximity_threshold: float = 0.10  # 接近高点阈值
+
+    # 强趋势惩罚减免
+    strong_trend_threshold: float = 0.80  # 趋势强度>0.8时触发
+    strong_trend_penalty_reduction: float = 0.50  # 惩罚减半
 
 
 @dataclass
@@ -193,15 +160,19 @@ class HighPriceBuyOptimizer:
         adjustment_reason = ""
         penalty_applied = False
 
-        # 判断是否为原始 BUY 信号（对 BUY 信号减少惩罚）
+        # 判断是否为原始 BUY 信号
         is_original_buy = original_signal.upper() == "BUY"
 
-        # BUY 信号惩罚系数（不减少惩罚，统一标准）
+        # BUY 信号惩罚系数
         penalty_factor = 1.0
+
+        # 强趋势惩罚减免：趋势强度>0.8时，惩罚减半
+        if trend_strength > self.config.strong_trend_threshold:
+            penalty_factor = self.config.strong_trend_penalty_reduction
+            adjustment_reason += f"强趋势({trend_strength:.2f}>0.8): 惩罚减免50%; "
 
         # 6.1 价格水平调整
         if price_level == "high":
-            # 高位时需要更高的置信度
             if original_confidence < 0.75:
                 adjusted_confidence = max(
                     adjusted_confidence - (0.10 * penalty_factor), 0.35
@@ -250,7 +221,7 @@ class HighPriceBuyOptimizer:
             adjustment_reason += f"接近近期高点: 置信度降低{8 * penalty_factor:.0f}%; "
             penalty_applied = True
 
-        # 6.7 低位/超卖奖励机制（只有奖励，没有惩罚上限）
+        # 6.7 低位/超卖奖励机制
         reward_applied = False
         reward_reason = ""
 
@@ -282,24 +253,14 @@ class HighPriceBuyOptimizer:
             adjustment_reason += reward_reason
 
         # 7. 综合判断
-        # 原始可以买入，且优化后置信度仍然足够 - 降低门槛以允许更多交易
         should_buy = original_can_buy and adjusted_confidence >= 0.40
 
-        # 如果是 BUY 信号，有惩罚时降低买入门槛（不要过于严格）
+        # 如果是 BUY 信号，有惩罚时降低买入门槛
         if penalty_applied:
             if is_original_buy and adjusted_confidence >= 0.35:
-                should_buy = True  # BUY 信号放宽门槛
+                should_buy = True
             elif not is_original_buy and adjusted_confidence >= 0.40:
-                should_buy = False  # 非 BUY 信号保持严格
-        # 原始可以买入，且优化后置信度仍然足够
-        should_buy = original_can_buy and adjusted_confidence >= 0.50
-
-        # 如果是 BUY 信号，有惩罚时降低买入门槛（不要过于严格）
-        if penalty_applied:
-            if is_original_buy and adjusted_confidence >= 0.40:
-                should_buy = True  # BUY 信号放宽门槛
-            elif not is_original_buy and adjusted_confidence >= 0.45:
-                should_buy = False  # 非 BUY 信号保持严格
+                should_buy = False
 
         result = HighPriceBuyResult(
             adjusted_confidence=adjusted_confidence,
@@ -332,23 +293,14 @@ class HighPriceBuyOptimizer:
         return result
 
     def _get_price_level(self, price: float) -> str:
-        """
-        判断价格水平
-
-        Args:
-            price: 当前价格
-
-        Returns:
-            str: low | mid | high
-        """
+        """判断价格水平"""
         if len(self.price_history) < 10:
-            return "low"  # 历史数据不足，默认为低价位
+            return "low"
 
         price_range = max(self.price_history) - min(self.price_history)
         if price_range == 0:
             return "low"
 
-        # 计算价格相对位置
         relative_position = (price - min(self.price_history)) / price_range
 
         if relative_position < self.config.price_level_mid_threshold:
@@ -359,15 +311,7 @@ class HighPriceBuyOptimizer:
             return "high"
 
     def _get_thresholds(self, price_level: str) -> Dict[str, float]:
-        """
-        获取当前价格水平对应的阈值
-
-        Args:
-            price_level: 价格水平
-
-        Returns:
-            Dict: 阈值配置
-        """
+        """获取当前价格水平对应的阈值"""
         if price_level == "low":
             return {
                 "price_position_threshold": self.config.price_position_threshold_low,
@@ -392,7 +336,6 @@ class HighPriceBuyOptimizer:
         if len(self.price_history) < 5:
             return 0
 
-        # 计算最近5个价格的位置变化
         recent_prices = self.price_history[-5:]
         price_range = max(recent_prices) - min(recent_prices)
         if price_range == 0:
@@ -402,15 +345,7 @@ class HighPriceBuyOptimizer:
         return position_change
 
     def _is_near_recent_high(self, price: float) -> bool:
-        """
-        检测是否接近近期高点
-
-        Args:
-            price: 当前价格
-
-        Returns:
-            bool: 是否接近近期高点
-        """
+        """检测是否接近近期高点"""
         if len(self.price_history) < self.config.recent_high_periods:
             return False
 
@@ -418,7 +353,6 @@ class HighPriceBuyOptimizer:
         if recent_high == 0:
             return False
 
-        # 价格在近期高点3%以内
         proximity = (recent_high - price) / recent_high
         return proximity < self.config.high_proximity_threshold
 

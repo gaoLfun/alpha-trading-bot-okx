@@ -577,7 +577,7 @@ class AdaptiveTradingBot:
                     stop_price=stop_loss_price,
                     current_price=current_price,
                     position_side=position_side,
-max_retries=2,
+max_retries=3,
                 )
                 if stop_order_id:
                     self.position_manager.set_stop_order(stop_order_id, stop_loss_price)
@@ -833,7 +833,7 @@ max_retries=2,
         amount: float,
         stop_price: float,
         current_price: float,
-        max_retries: int = 2,
+        max_retries: int = 3,
         position_side: str = "long",
     ) -> Optional[str]:
         """创建止损单（带重试机制）"""
@@ -852,11 +852,11 @@ max_retries=2,
                 if stop_order_id:
                     return stop_order_id
                 if attempt < max_retries:
-                    stop_price = stop_price * 0.998
+                    stop_price = stop_price * 0.995
                     logger.warning(f"[止损重试] 第{attempt+1}次失败，降低止损价至 {stop_price:.1f}")
             except Exception as e:
                 if "SL trigger price" in str(e) and attempt < max_retries:
-                    stop_price = stop_price * 0.998
+                    stop_price = stop_price * 0.995
                     logger.warning(f"[止损重试] 止损价过高，降低至 {stop_price:.1f}")
                     continue
                 logger.error(f"[止损重试] 创建止损单失败: {e}")
@@ -956,7 +956,7 @@ max_retries=2,
                 stop_price=new_stop_price,
                 current_price=current_price,
                 position_side=position_side,
-                max_retries=2,
+                max_retries=3,
             )
             if stop_order_id:
                 self.position_manager.set_stop_order(stop_order_id, new_stop_price)
@@ -1008,7 +1008,7 @@ max_retries=2,
             stop_price=new_stop_price,
             current_price=current_price,
             position_side=position_side,
-            max_retries=2,
+            max_retries=3,
         )
         if stop_order_id:
             self.position_manager.set_stop_order(stop_order_id, new_stop_price)
