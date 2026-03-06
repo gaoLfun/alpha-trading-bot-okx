@@ -204,7 +204,8 @@ class AISignalIntegrator:
                 conf_history.append((1, "AdaptiveBuy", original_confidence))
 
             except Exception as e:
-                logger.warning(f"AdaptiveBuyCondition处理失败: {e}")
+                import traceback
+                logger.warning(f"AdaptiveBuyCondition处理失败: {e}, 位置: {traceback.format_exc(limit=3)}")
 
         # 2. SignalOptimizer
         if self.signal_optimizer and self.config.enable_signal_optimizer:
@@ -231,7 +232,8 @@ class AISignalIntegrator:
                 self.signal_optimizer.update_price_history(price)
 
             except Exception as e:
-                logger.warning(f"SignalOptimizer处理失败: {e}")
+                import traceback
+                logger.warning(f"SignalOptimizer处理失败: {e}, 位置: {traceback.format_exc(limit=3)}")
 
         # 3. BTC价格水平检测
         if self.btc_detector and self.config.enable_btc_detector:
