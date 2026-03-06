@@ -19,6 +19,8 @@ import argparse
 import asyncio
 import logging
 import os
+import sys
+import traceback
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -51,6 +53,20 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+# 全局异常处理器 - 捕获所有未处理的异常
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger.critical(
+        f"未捕获的致命异常: {exc_type.__name__}: {exc_value}\n"
+        + "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    )
+
+
+sys.excepthook = global_exception_handler
 
 VALID_MODES = ["standard", "adaptive"]
 
