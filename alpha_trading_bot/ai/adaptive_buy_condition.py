@@ -144,7 +144,7 @@ class AdaptiveBuyCondition:
         # 2. 超卖反弹模式检查
         if self.conditions.oversold_enabled:
             oversold_result = self._check_oversold_rebound_mode(
-                rsi, recent_change, trend_strength, bb_position
+                rsi, recent_change, trend_direction, trend_strength, bb_position
             )
             results["oversold_rebound"] = oversold_result
 
@@ -264,7 +264,7 @@ class AdaptiveBuyCondition:
         rsi: float,
         recent_change: float,
         trend_strength: float,
-        bb_position: float,
+        trend_direction: str,
     ) -> Dict[str, Any]:
         """
         检查超卖反弹模式
@@ -285,6 +285,8 @@ class AdaptiveBuyCondition:
             "momentum": recent_change > c.oversold_momentum_min,
             "trend": trend_strength > c.oversold_trend_strength_min,
             "bb": bb_position < c.oversold_bb_position_max,
+            # 趋势向下时不允许超卖反弹买入
+            "trend_direction": trend_direction != "down",
         }
 
         passed = sum(1 for v in checks.values() if v)
@@ -309,10 +311,13 @@ class AdaptiveBuyCondition:
         if bb_position < 35:
             base_confidence += 0.08
 
-        # 减分项
-        if trend_strength > 0.5:
             base_confidence -= 0.15  # 下跌趋势太强劲
 
+        # 下跌趋势强烈减分
+        if trend_direction == "down":
+            base_confidence -= 0.25  # 下跌趋势不买入
+
+        final_confidence = max(min(base_confidence + pass_rate * 0.05, 0.88), 0.45)
         final_confidence = max(min(base_confidence + pass_rate * 0.05, 0.88), 0.45)
 
         return {

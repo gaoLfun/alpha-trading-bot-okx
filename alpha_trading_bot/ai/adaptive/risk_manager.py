@@ -156,7 +156,9 @@ class HardStopLossBoundary(RiskBoundary):
         """
         if "stop_loss_price" not in signal:
             entry_price = signal.get("entry_price", 0)
-            if entry_price and signal.get("side") == "buy":
+            side = signal.get("side", "")
+            is_long = side in ["buy", "open", "long"]
+            if entry_price and is_long:
                 signal["stop_loss_price"] = entry_price * (
                     1 - self.config.hard_stop_loss_percent
                 )
@@ -465,7 +467,10 @@ class RiskControlManager:
             if "stop_loss_percent" in rule_adjustments:
                 # 使用规则引擎的动态止损比例
                 stop_loss_pct = rule_adjustments["stop_loss_percent"]
-                if signal.get("side") == "buy":
+                side = signal.get("side", "")
+                # 做多/开仓: 止损价 = 入场价 * (1 - 止损百分比)
+                # 做空: 止损价 = 入场价 * (1 + 止损百分比)
+                if is_buy:
                     signal["stop_loss_price"] = signal.get("price", 0) * (
                         1 - stop_loss_pct
                     )
