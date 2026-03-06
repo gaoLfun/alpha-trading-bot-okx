@@ -390,6 +390,16 @@ class AdaptiveBuyCondition:
         if "composite_price_position" in market_data:
             price_position = market_data["composite_price_position"]
 
+        # 类型转换，防止字符串比较错误
+        try:
+            bb_position = float(str(bb_position)) if bb_position else 50
+        except (ValueError, TypeError):
+            bb_position = 50
+        try:
+            price_position = float(str(price_position)) if price_position else 50
+        except (ValueError, TypeError):
+            price_position = 50
+
         checks = {
             "price_position": price_position < c.support_price_position_max,
             "rsi": rsi < c.support_rsi_max,
@@ -451,6 +461,19 @@ class AdaptiveBuyCondition:
         trend_direction = technical.get("trend_direction", "sideways")
         trend_strength = technical.get("trend_strength", 0.3)
         hourly_changes = market_data.get("hourly_changes", [])
+
+        # 类型转换，防止字符串比较错误
+        try:
+            trend_strength = float(str(trend_strength)) if trend_strength else 0.3
+        except (ValueError, TypeError):
+            trend_strength = 0.3
+        if not isinstance(trend_direction, str):
+            trend_direction = "sideways"
+        # 确保hourly_changes是数值列表
+        try:
+            hourly_changes = [float(str(x)) for x in hourly_changes if x is not None]
+        except (ValueError, TypeError):
+            hourly_changes = []
 
         # 检查连续上涨周期数
         consecutive_up = 0
