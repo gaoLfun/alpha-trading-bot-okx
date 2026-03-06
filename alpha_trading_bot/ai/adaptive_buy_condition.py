@@ -125,6 +125,8 @@ class AdaptiveBuyCondition:
         rsi = technical.get("rsi", 50)
         macd_hist = technical.get("macd_hist", 0)
         bb_position = technical.get("bb_position", 50)
+        # 从technical中获取adx
+        adx = technical.get("adx", 20)
         # 确保数值类型正确，防止字符串比较错误
         try:
             trend_strength = float(trend_strength) if trend_strength else 0.3
