@@ -125,7 +125,26 @@ class AdaptiveBuyCondition:
         rsi = technical.get("rsi", 50)
         macd_hist = technical.get("macd_hist", 0)
         bb_position = technical.get("bb_position", 50)
-        adx = technical.get("adx", 20)
+        # 确保数值类型正确，防止字符串比较错误
+        try:
+            trend_strength = float(trend_strength) if trend_strength else 0.3
+            rsi = float(rsi) if rsi else 50
+            macd_hist = float(macd_hist) if macd_hist else 0
+            bb_position = float(bb_position) if bb_position else 50
+            adx = float(adx) if adx else 20
+            recent_change = float(recent_change) if recent_change else 0
+        except (ValueError, TypeError):
+            # 如果转换失败，使用默认值
+            trend_strength = 0.3
+            rsi = 50
+            macd_hist = 0
+            bb_position = 50
+            adx = 20
+            recent_change = 0
+
+        # 确保趋势方向是字符串
+        if not isinstance(trend_direction, str):
+            trend_direction = "sideways"
 
         results: Dict[str, Dict[str, Any]] = {}
 
