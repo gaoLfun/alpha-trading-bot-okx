@@ -128,20 +128,34 @@ class AdaptiveBuyCondition:
         # 从technical中获取adx
         adx = technical.get("adx", 20)
         # 确保数值类型正确，防止字符串比较错误
+        # 使用更安全的转换方式
         try:
-            trend_strength = float(trend_strength) if trend_strength else 0.3
-            rsi = float(rsi) if rsi else 50
-            macd_hist = float(macd_hist) if macd_hist else 0
-            bb_position = float(bb_position) if bb_position else 50
-            adx = float(adx) if adx else 20
-            recent_change = float(recent_change) if recent_change else 0
+            ts = float(str(trend_strength))
+            trend_strength = ts if -1 < ts < 2 else 0.3
         except (ValueError, TypeError):
-            # 如果转换失败，使用默认值
             trend_strength = 0.3
+        try:
+            rs = float(str(rsi))
+            rsi = rs if 0 < rs < 100 else 50
+        except (ValueError, TypeError):
             rsi = 50
+        try:
+            macd_hist = float(str(macd_hist))
+        except (ValueError, TypeError):
             macd_hist = 0
+        try:
+            bp = float(str(bb_position))
+            bb_position = bp if 0 <= bp <= 100 else 50
+        except (ValueError, TypeError):
             bb_position = 50
+        try:
+            adx = float(str(adx))
+            adx = adx if adx > 0 else 20
+        except (ValueError, TypeError):
             adx = 20
+        try:
+            recent_change = float(str(recent_change))
+        except (ValueError, TypeError):
             recent_change = 0
 
         # 确保趋势方向是字符串
