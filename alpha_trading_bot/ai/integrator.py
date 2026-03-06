@@ -272,7 +272,8 @@ class AISignalIntegrator:
                     conf_history.append((3, "BTC低位", original_confidence))
 
             except Exception as e:
-                logger.warning(f"BTC价格检测处理失败: {e}")
+                import traceback
+                logger.warning(f"BTC价格检测处理失败: {e}, 位置: {traceback.format_exc(limit=3)}")
 
         # 4. HighPriceBuyOptimizer
         if self.high_price_optimizer and self.config.enable_high_price_filter:
@@ -303,7 +304,8 @@ class AISignalIntegrator:
                 conf_history.append((4, "HighPrice", original_confidence))
 
             except Exception as e:
-                logger.warning(f"HighPriceBuyOptimizer处理失败: {e}")
+                import traceback
+                logger.warning(f"HighPriceBuyOptimizer处理失败: {e}, 位置: {traceback.format_exc(limit=3)}")
 
         # 5. 最终结果
         result.final_signal = original_signal
