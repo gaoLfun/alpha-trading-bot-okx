@@ -123,6 +123,17 @@ class ConsensusBoostedFusion:
             return FusionResult(
                 signal="hold",
                 confidence=0.6,
+                scores={"buy": 0, "hold": 1, "sell": 0, "short": 0},
+                threshold=threshold or self.config.threshold,
+                is_valid=False,
+                consensus_ratio=0.0,
+                strategy_used=self.config.strategy.value,
+                details={"reason": "no signals"},
+            )
+            logger.warning("[融合] 无有效信号，返回hold")
+            return FusionResult(
+                signal="hold",
+                confidence=0.6,
                 scores={"buy": 0, "hold": 1, "sell": 0},
                 threshold=threshold or self.config.threshold,
                 is_valid=False,
@@ -153,7 +164,7 @@ class ConsensusBoostedFusion:
             # 根据市场环境动态调整信号触发条件
 
             # 先计算原始得分，确定可能胜出的信号类型
-            raw_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0}
+            raw_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0, "short": 0.0}
             for s in signals:
                 sig = s["signal"]
                 weight = weights.get(s["provider"], 1.0)
@@ -204,7 +215,7 @@ class ConsensusBoostedFusion:
         """加权平均融合"""
         threshold = threshold or self.config.threshold
 
-        weighted_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0}
+        weighted_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0, "short": 0.0}
         total_weight = 0
 
         for s in signals:
@@ -343,7 +354,7 @@ class ConsensusBoostedFusion:
         """置信度优先融合"""
         threshold = threshold or self.config.threshold
 
-        signal_counts = {"buy": 0, "hold": 0, "sell": 0}
+        signal_counts = {"buy": 0, "hold": 0, "sell": 0, "short": 0}
         for s in signals:
             if s["signal"] in signal_counts:
                 signal_counts[s["signal"]] += 1
@@ -427,7 +438,7 @@ class ConsensusBoostedFusion:
             )
 
         # 步骤1: 计算加权得分
-        weighted_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0}
+        weighted_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0, "short": 0.0}
         total_weight = 0
 
         # 检查是否有Kimi BUY信号

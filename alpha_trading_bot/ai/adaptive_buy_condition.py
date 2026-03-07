@@ -316,13 +316,31 @@ class AdaptiveBuyCondition:
         """
         c = self.conditions
 
+        # 🔴 核心修复：下跌趋势时直接返回不通过
+        if trend_direction == "down":
+            logger.warning(
+                f"[超卖反弹] 趋势向下({trend_direction})，禁止触发超卖反弹买入"
+            )
+            return {
+                "passed": False,
+                "confidence": 0.35,
+                "checks": {
+                    "rsi": rsi < c.oversold_rsi_max,
+                    "momentum": recent_change > c.oversold_momentum_min,
+                    "trend": trend_strength > c.oversold_trend_strength_min,
+                    "bb": bb_position < c.oversold_bb_position_max,
+                    "trend_direction": False,  # 强制失败
+                },
+                "pass_rate": 0.8,
+                "position_factor": c.oversold_position_factor,
+                "reason": f"超卖反弹: 趋势向下，禁止买入",
+            }
+
         checks = {
             "rsi": rsi < c.oversold_rsi_max,
             "momentum": recent_change > c.oversold_momentum_min,
             "trend": trend_strength > c.oversold_trend_strength_min,
             "bb": bb_position < c.oversold_bb_position_max,
-            # 趋势向下时不允许超卖反弹买入
-            "trend_direction": trend_direction != "down",
         }
 
         passed = sum(1 for v in checks.values() if v)
@@ -357,6 +375,8 @@ class AdaptiveBuyCondition:
         final_confidence = max(min(base_confidence + pass_rate * 0.05, 0.88), 0.45)
 
         return {
+            "passed": passed >= 4,  # 提高门槛：需要全部4个条件通过
+            "confidence": final_confidence,
             "passed": passed >= 3,
             "confidence": final_confidence,
             "checks": checks,
@@ -385,6 +405,7 @@ class AdaptiveBuyCondition:
         technical = market_data.get("technical", {})
         bb_position = technical.get("bb_position", 50)
         price_position = technical.get("price_position", 50)
+        trend_direction = technical.get("trend_direction", "sideways")
 
         # 如果有综合价格位置，使用它
         if "composite_price_position" in market_data:
@@ -399,6 +420,26 @@ class AdaptiveBuyCondition:
             price_position = float(str(price_position)) if price_position else 50
         except (ValueError, TypeError):
             price_position = 50
+
+        # 🔴 核心修复：下跌趋势时禁止强势支撑买入
+        if trend_direction == "down":
+            logger.warning(
+                f"[强势支撑] 趋势向下({trend_direction})，禁止触发买入"
+            )
+            return {
+                "passed": False,
+                "confidence": 0.35,
+                "checks": {
+                    "price_position": price_position < c.support_price_position_max,
+                    "rsi": rsi < c.support_rsi_max,
+                    "momentum": recent_change > c.support_momentum_min,
+                    "trend_direction": False,
+                },
+                "pass_rate": 0.75,
+                "position_factor": c.support_position_factor,
+                "price_position": price_position,
+                "reason": f"强势支撑: 趋势向下，禁止买入",
+            }
 
         checks = {
             "price_position": price_position < c.support_price_position_max,
