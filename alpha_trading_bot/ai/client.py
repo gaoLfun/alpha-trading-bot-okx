@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 # 信号分布统计（全局计数器）- 用于监控信号多样性
 _signal_distribution: Dict[str, Dict[str, int]] = defaultdict(
-    lambda: {"buy": 0, "hold": 0, "sell": 0, "total": 0}
+    lambda: {"buy": 0, "hold": 0, "sell": 0, "short": 0, "total": 0}
 )
 _signal_distribution_lock = asyncio.Lock()
 
@@ -344,7 +344,7 @@ class AIClient:
         )
 
         # 获取各信号得分
-        weighted_scores = {"buy": 0, "hold": 0, "sell": 0}
+        weighted_scores = {"buy": 0, "hold": 0, "sell": 0, "short": 0}
         for s in signals:
             weight = self.config.fusion_weights.get(s["provider"], 1.0)
             weighted_scores[s["signal"]] += weight

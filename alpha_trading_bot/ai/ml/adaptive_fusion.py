@@ -51,7 +51,7 @@ class AdaptiveFusionStrategy:
         weights = self.weight_map.get(regime, self.weight_map["sideways"])
         threshold = self._calculate_threshold(regime, momentum)
 
-        scores = {"buy": 0.0, "hold": 0.0, "sell": 0.0}
+        scores = {"buy": 0.0, "hold": 0.0, "sell": 0.0, "short": 0.0}
 
         for signal_data in signals:
             provider = signal_data.get("provider", "unknown")
@@ -69,6 +69,7 @@ class AdaptiveFusionStrategy:
                 scores[s] = scores[s] / total
 
         buy_ratio = scores["buy"]
+        short_ratio = scores.get("short", 0.0)
 
         if buy_ratio >= threshold:
             result_signal = "buy"
@@ -76,6 +77,9 @@ class AdaptiveFusionStrategy:
         elif scores["sell"] >= threshold:
             result_signal = "sell"
             result_confidence = scores["sell"] * 100
+        elif short_ratio >= threshold:
+            result_signal = "short"
+            result_confidence = short_ratio * 100
         else:
             result_signal = "hold"
             result_confidence = max(scores.values()) * 100

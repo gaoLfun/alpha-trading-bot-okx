@@ -326,7 +326,7 @@ class SignalOptimizer:
         recent_signals = list(self.signal_history)[-self.config.smoothing_window :]
 
         # 统计各信号数量
-        signal_counts = {"buy": 0, "hold": 0, "sell": 0}
+        signal_counts = {"buy": 0, "hold": 0, "sell": 0, "short": 0}
         for record in recent_signals:
             if record.signal in signal_counts:
                 signal_counts[record.signal] += 1
@@ -369,8 +369,8 @@ class SignalOptimizer:
         if not self.signal_history:
             return {"status": "no_data"}
 
-        signal_counts = {"buy": 0, "hold": 0, "sell": 0}
-        total_confidence = {"buy": 0, "hold": 0, "sell": 0}
+        signal_counts = {"buy": 0, "hold": 0, "sell": 0, "short": 0}
+        total_confidence = {"buy": 0, "hold": 0, "sell": 0, "short": 0}
 
         for record in self.signal_history:
             if record.signal in signal_counts:

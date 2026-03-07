@@ -33,7 +33,7 @@ class WeightedFusion(FusionStrategy):
             logger.warning("无有效信号，默认hold")
             return "hold"
 
-        weighted_scores = {"buy": 0, "hold": 0, "sell": 0}
+        weighted_scores = {"buy": 0, "hold": 0, "sell": 0, "short": 0}
         total_weight = 0
 
         for s in signals:
@@ -52,6 +52,8 @@ class WeightedFusion(FusionStrategy):
                 weighted_scores["buy"] += adjusted_weight
             elif sig == "sell":
                 weighted_scores["sell"] += adjusted_weight
+            elif sig == "short":
+                weighted_scores["short"] += adjusted_weight
             else:
                 weighted_scores["hold"] += adjusted_weight
 
@@ -69,6 +71,6 @@ class WeightedFusion(FusionStrategy):
         self._log_result(
             "加权平均(置信度加权)",
             max_sig,
-            f"buy:{weighted_scores['buy']:.2f}, hold:{weighted_scores['hold']:.2f}, sell:{weighted_scores['sell']:.2f}, threshold:{threshold}, valid:{is_valid}",
+            f"buy:{weighted_scores['buy']:.2f}, hold:{weighted_scores['hold']:.2f}, sell:{weighted_scores['sell']:.2f}, short:{weighted_scores['short']:.2f}, threshold:{threshold}, valid:{is_valid}",
         )
         return max_sig
