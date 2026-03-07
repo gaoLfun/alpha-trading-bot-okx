@@ -199,11 +199,25 @@ class SustainedDeclineDetector:
             )
 
         # 获取周期开始价格和时间
+        # 优先使用cycle_start_price，否则使用_cycle_high_price
         start_price = (
             market_data.get("cycle_start_price")
             or cycle_start_price
             or self._cycle_high_price
-            or current_price
+        )
+
+        # 如果没有找到周期开始价格，使用daily_change估算
+        if not start_price or start_price == current_price:
+            daily_change = market_data.get("daily_change_percent", 0)
+            # 从日跌幅估算周期高点（假设当前价格）
+            if daily_change < 0:
+                # start_price = current_price / (1 + daily_change/100)
+                start_price = current_price * (1 - daily_change / 100) if daily_change != 0 else current_price
+            else:
+                start_price = current_price
+            logger.info(f"[持续下跌检测] 使用日跌幅估算周期高点: {start_price} (日跌幅: {daily_change}%)")
+
+        start_time = (
         )
         start_time = (
             market_data.get("cycle_start_time")
