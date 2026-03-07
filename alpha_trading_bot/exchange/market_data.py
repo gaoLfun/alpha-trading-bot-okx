@@ -62,6 +62,20 @@ class MarketDataService:
 
         # 计算1小时跌幅
         recent_drop = self._calculate_recent_drop(closes)
+        hourly_changes = self._calculate_hourly_changes(closes)
+
+        return {
+            "symbol": self.symbol,
+            "price": ticker.get("last", 0),
+            "high": ticker.get("high", 0),
+            "low": ticker.get("low", 0),
+            "volume": ticker.get("baseVolume", 0),
+            "change_percent": ticker.get("percentage", 0),
+            "technical": technical_data,
+            "recent_drop_percent": recent_drop,
+            "price_history": closes,
+            "hourly_changes": hourly_changes,
+        }
 
         return {
             "symbol": self.symbol,
@@ -98,6 +112,16 @@ class MarketDataService:
                 return drop_percent
 
         return 0.0
+
+    def _calculate_hourly_changes(self, closes: List[float]) -> List[float]:
+        if len(closes) < 2:
+            return []
+        changes = []
+        for i in range(1, len(closes)):
+            if closes[i - 1] > 0:
+                change = (closes[i] - closes[i - 1]) / closes[i - 1]
+                changes.append(change)
+        return changes
 
     def calculate_1h_drop(self, ohlcv: List[List[float]]) -> float:
         """
