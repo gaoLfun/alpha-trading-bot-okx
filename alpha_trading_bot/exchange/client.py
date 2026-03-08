@@ -37,12 +37,6 @@ class ExchangeClient:
         self._account_service: Optional[AccountService] = None
         self._market_data_service: Optional[MarketDataService] = None
         self._order_service: Optional[OrderService] = None
-        self.exchange: Optional[ccxt.okx] = None
-
-        # 组合服务
-        self._account_service: Optional[AccountService] = None
-        self._market_data_service: Optional[MarketDataService] = None
-        self._order_service: Optional[OrderService] = None
 
     async def initialize(self) -> None:
         """初始化"""

@@ -90,14 +90,6 @@ class PositionManager:
         """获取入场价"""
         return self._entry_price
 
-    def position(self) -> Optional[Position]:
-        """获取当前持仓"""
-        return self._position
-
-    @property
-    def entry_price(self) -> float:
-        """获取入场价"""
-        return self._entry_price
 
     @property
     def stop_order_id(self) -> Optional[str]:
@@ -279,41 +271,6 @@ class PositionManager:
             f"[止盈计算-做空] 入场价:{self._entry_price}, 止盈比例:{take_profit_percent * 100}%, 止盈价:{take_profit_price}"
         )
         return take_profit_price
-        """
-        计算止损价
-
-        止损逻辑:
-        1. 新建仓/亏损状态: 止损价 = 当前价格 × 99.5% (确保低于当前价)
-        2. 盈利状态(当前价 > 入场价): 止损价 = 当前价格 × 99.8% (追踪止损)
-
-        Args:
-            current_price: 当前价格
-
-        Returns:
-            止损价
-        """
-        if self._position is None or self._entry_price == 0:
-            return 0.0
-
-        # 新建仓/亏损状态: 止损价 = 当前价格 × 99.5%
-        # 使用当前价格而非入场价，确保止损价低于当前价格，避免OKX拒绝
-        if current_price <= self._entry_price:
-            stop_percent = 0.005  # 0.5% 止损 = 99.5%
-            stop_price = current_price * (1 - stop_percent)
-            logger.debug(
-                f"[止损计算] 亏损/新建仓: 当前价({current_price}) <= 入场价({self._entry_price}), "
-                f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
-            )
-            return stop_price
-        else:
-            # 盈利状态: 止损价 = 当前价格 × 99.8% (追踪止损，只升不降)
-            stop_percent = 0.002  # 0.2% 止损 = 99.8%
-            stop_price = current_price * (1 - stop_percent)
-            logger.debug(
-                f"[止损计算] 盈利状态: 当前价({current_price}) > 入场价({self._entry_price}), "
-                f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
-            )
-            return stop_price
 
     def log_stop_loss_info(self, current_price: float, new_stop: float) -> None:
         """记录止损信息（支持做多和做空）"""
@@ -350,19 +307,6 @@ class PositionManager:
                     f"[止损监控-做空] 盈利持仓: 当前价={current_price}, 入场价={self._entry_price}, "
                     f"盈利={pnl:.2f}%, 止损价={new_stop}"
                 )
-        """记录止损信息"""
-        if current_price < self._entry_price:
-            pnl = (current_price - self._entry_price) / self._entry_price * 100
-            logger.info(
-                f"[止损监控] 亏损持仓: 当前价={current_price}, 入场价={self._entry_price}, "
-                f"亏损={pnl:.2f}%, 止损价={new_stop}"
-            )
-        else:
-            pnl = (current_price - self._entry_price) / self._entry_price * 100
-            logger.info(
-                f"[止损监控] 盈利持仓: 当前价={current_price}, 入场价={self._entry_price}, "
-                f"盈利={pnl:.2f}%, 止损价={new_stop}"
-            )
 
     def set_stop_order(self, stop_order_id: str, stop_price: float = 0.0) -> None:
         """设置止损单ID（并持久化）"""
@@ -492,38 +436,6 @@ class PositionManager:
 
         logger.info(
             f"[持仓更新] 开仓成功: {symbol}, 方向:{side}, 数量:{amount}, 入场价:{entry_price}"
-        )
-        """更新持仓信息（开仓后调用，并持久化）"""
-        self._entry_price = entry_price
-        self._position = Position(
-            symbol=symbol,
-            side="long",
-            amount=amount,
-            entry_price=entry_price,
-        )
-
-        # 持久化保存
-        self._persistence.save_position(
-            symbol=symbol,
-            side="long",
-            amount=amount,
-            entry_price=entry_price,
-            stop_order_id=self._stop_order_id,
-            last_stop_price=self._last_stop_price,
-        )
-
-        # 记录开仓交易
-        self._persistence.record_trade(
-            trade_type="open",
-            symbol=symbol,
-            side="long",
-            amount=amount,
-            price=entry_price,
-            reason="signal_open",
-        )
-
-        logger.info(
-            f"[持仓更新] 开仓成功: {symbol}, 方向:long, 数量:{amount}, 入场价:{entry_price}"
         )
 
 
