@@ -53,6 +53,7 @@ class TradingBot:
                 secret=self.config.exchange.secret,
                 password=self.config.exchange.password,
                 symbol=self.config.exchange.symbol,
+                allow_short_selling=self.config.trading.allow_short_selling,
             )
             await self._exchange.initialize()
             await self._exchange.set_leverage(self.config.exchange.leverage)

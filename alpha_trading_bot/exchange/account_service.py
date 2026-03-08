@@ -12,9 +12,10 @@ logger = logging.getLogger(__name__)
 class AccountService:
     """账户服务"""
 
-    def __init__(self, exchange, symbol: str):
+    def __init__(self, exchange, symbol: str, allow_short_selling: bool = True):
         self.exchange = exchange
         self.symbol = symbol
+        self.allow_short_selling = allow_short_selling  # 是否允许做空
 
     async def get_balance(self) -> float:
         """获取可用USDT余额"""
@@ -76,19 +77,35 @@ class AccountService:
             for pos in positions:
                 if pos["contracts"] and pos["contracts"] != 0:
                     side = pos["side"]
-                    # 只支持做多，如果检测到空单则标记为需要平仓
+                    # 只有在禁止做空时，才强制平仓空单
+                    # 如果允许做空，空单正常持有
                     if side == "short":
-                        logger.warning(
-                            f"[账户查询] 检测到空单: 数量={abs(pos['contracts'])}, "
-                            f"入场价={pos['entryPrice']}, 系统将自动平仓"
-                        )
-                        position_info = {
-                            "symbol": self.symbol,
-                            "side": "short_to_close",  # 标记为空单需平仓
-                            "amount": abs(pos["contracts"]),
-                            "entry_price": pos["entryPrice"],
-                            "unrealized_pnl": pos.get("unrealizedPnl", 0),
-                        }
+                        if not self.allow_short_selling:
+                            # 禁止做空时，强制平仓
+                            logger.warning(
+                                f"[账户查询] 检测到空单(禁止做空): 数量={abs(pos['contracts'])}, "
+                                f"入场价={pos['entryPrice']}, 系统将自动平仓"
+                            )
+                            position_info = {
+                                "symbol": self.symbol,
+                                "side": "short_to_close",  # 标记为空单需平仓
+                                "amount": abs(pos["contracts"]),
+                                "entry_price": pos["entryPrice"],
+                                "unrealized_pnl": pos.get("unrealizedPnl", 0),
+                            }
+                        else:
+                            # 允许做空时，空单正常持有
+                            logger.info(
+                                f"[账户查询] 检测到空单(允许做空): 数量={abs(pos['contracts'])}, "
+                                f"入场价={pos['entryPrice']}, 正常持有"
+                            )
+                            position_info = {
+                                "symbol": self.symbol,
+                                "side": "short",  # 正常空单，不平仓
+                                "amount": abs(pos["contracts"]),
+                                "entry_price": pos["entryPrice"],
+                                "unrealized_pnl": pos.get("unrealizedPnl", 0),
+                            }
                     else:
                         position_info = {
                             "symbol": self.symbol,
@@ -112,6 +129,6 @@ class AccountService:
             return None
 
 
-def create_account_service(exchange, symbol: str) -> AccountService:
+def create_account_service(exchange, symbol: str, allow_short_selling: bool = True) -> AccountService:
     """创建账户服务实例"""
-    return AccountService(exchange, symbol)
+    return AccountService(exchange, symbol, allow_short_selling)

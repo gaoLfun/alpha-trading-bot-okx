@@ -24,11 +24,19 @@ class ExchangeClient:
         secret: str = "",
         password: str = "",
         symbol: str = "BTC/USDT:USDT",
+        allow_short_selling: bool = True,
     ):
         self.api_key = api_key
         self.secret = secret
         self.password = password
         self.symbol = symbol
+        self.allow_short_selling = allow_short_selling  # 是否允许做空
+        self.exchange: Optional[ccxt.okx] = None
+
+        # 组合服务
+        self._account_service: Optional[AccountService] = None
+        self._market_data_service: Optional[MarketDataService] = None
+        self._order_service: Optional[OrderService] = None
         self.exchange: Optional[ccxt.okx] = None
 
         # 组合服务
@@ -49,7 +57,9 @@ class ExchangeClient:
         )
 
         # 初始化子服务
-        self._account_service = create_account_service(self.exchange, self.symbol)
+        self._account_service = create_account_service(
+            self.exchange, self.symbol, self.allow_short_selling
+        )
         self._market_data_service = create_market_data_service(
             self.exchange, self.symbol
         )
