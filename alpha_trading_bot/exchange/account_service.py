@@ -35,6 +35,8 @@ class AccountService:
     ) -> Optional[Dict[str, Any]]:
         """
         P1修复: 获取持仓（带重试机制）
+        
+        特别优化：当返回"无持仓"时增加额外验证，避免OKX API延迟导致误判
 
         Args:
             max_retries: 最大重试次数
@@ -44,11 +46,40 @@ class AccountService:
             持仓信息字典，无持仓时返回None
         """
         last_error = None
+        consecutive_no_position = 0  # 连续无持仓次数
+        max_no_position_retries = 2  # 无持仓时的额外验证次数
 
         for attempt in range(max_retries):
             try:
                 result = await self.get_position()
-                return result
+                
+                # 如果返回无持仓，增加额外验证
+                if result is None:
+                    consecutive_no_position += 1
+                    logger.warning(
+                        f"[账户查询] 第 {attempt + 1} 次返回无持仓，连续 {consecutive_no_position} 次"
+                    )
+                    
+                    # 如果连续多次返回无持仓，才确认真的无持仓
+                    if consecutive_no_position <= max_no_position_retries and attempt < max_retries - 1:
+                        # 无持仓时增加更长的延迟进行验证
+                        extended_delay = retry_delay * 2  # 无持仓时延迟翻倍
+                        logger.warning(
+                            f"[账户查询] 无持仓待确认，{extended_delay:.1f}秒后再次验证..."
+                        )
+                        await asyncio.sleep(extended_delay)
+                        continue
+                    else:
+                        logger.info("[账户查询] 确认无持仓")
+                        return None
+                else:
+                    # 找到持仓，重置计数并返回
+                    if consecutive_no_position > 0:
+                        logger.info(
+                            f"[账户查询] 验证成功，之前 {consecutive_no_position} 次误判为无持仓"
+                        )
+                    return result
+                    
             except Exception as e:
                 last_error = e
                 if attempt < max_retries - 1:
