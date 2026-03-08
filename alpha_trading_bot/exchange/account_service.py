@@ -16,6 +16,7 @@ class AccountService:
         self.exchange = exchange
         self.symbol = symbol
         self.allow_short_selling = allow_short_selling  # 是否允许做空
+        self._last_position_state: Optional[Dict[str, Any]] = None  # 上一次持仓状态
 
     async def get_balance(self) -> float:
         """获取可用USDT余额"""
@@ -34,68 +35,57 @@ class AccountService:
         self, max_retries: int = 3, retry_delay: float = 1.0
     ) -> Optional[Dict[str, Any]]:
         """
-        P1修复: 获取持仓（带重试机制）
-        
-        特别优化：当返回"无持仓"时增加额外验证，避免OKX API延迟导致误判
+        获取持仓（带重试机制）
 
-        Args:
-            max_retries: 最大重试次数
-            retry_delay: 重试延迟（秒）
-
-        Returns:
-            持仓信息字典，无持仓时返回None
+        优化逻辑：只有当 API 返回与上一次状态不同时才额外验证
+        - 上次有持仓 → 本次无持仓：触发额外验证（避免 API 延迟误判）
+        - 上次无持仓 → 本次无持仓：直接确认（无需验证）
+        - 上次有持仓 → 本次有持仓：直接返回
         """
-        last_error = None
-        consecutive_no_position = 0  # 连续无持仓次数
-        max_no_position_retries = 2  # 无持仓时的额外验证次数
+        # 第一次查询
+        try:
+            result = await self.get_position()
+        except Exception as e:
+            logger.error(f"[账户查询] 获取持仓失败: {e}")
+            return None
 
-        for attempt in range(max_retries):
-            try:
-                result = await self.get_position()
-                
-                # 如果返回无持仓，增加额外验证
-                if result is None:
-                    consecutive_no_position += 1
-                    logger.warning(
-                        f"[账户查询] 第 {attempt + 1} 次返回无持仓，连续 {consecutive_no_position} 次"
-                    )
-                    
-                    # 如果连续多次返回无持仓，才确认真的无持仓
-                    if consecutive_no_position <= max_no_position_retries and attempt < max_retries - 1:
-                        # 无持仓时增加更长的延迟进行验证
-                        extended_delay = retry_delay * 2  # 无持仓时延迟翻倍
-                        logger.warning(
-                            f"[账户查询] 无持仓待确认，{extended_delay:.1f}秒后再次验证..."
-                        )
-                        await asyncio.sleep(extended_delay)
-                        continue
-                    else:
-                        logger.info("[账户查询] 确认无持仓")
-                        return None
-                else:
-                    # 找到持仓，重置计数并返回
-                    if consecutive_no_position > 0:
-                        logger.info(
-                            f"[账户查询] 验证成功，之前 {consecutive_no_position} 次误判为无持仓"
-                        )
-                    return result
-                    
-            except Exception as e:
-                last_error = e
-                if attempt < max_retries - 1:
-                    logger.warning(
-                        f"[账户查询] 获取持仓失败 (尝试 {attempt + 1}/{max_retries}): {e}. "
-                        f"{retry_delay:.1f}秒后重试..."
-                    )
-                    await asyncio.sleep(retry_delay)
-                else:
-                    logger.error(
-                        f"[账户查询] 获取持仓失败 (已重试{max_retries}次): {e}"
-                    )
+        current_has_position = result is not None
+        last_has_position = self._last_position_state is not None
 
-        # 所有重试都失败，返回None但记录错误
-        logger.error(f"[账户查询] 多次重试后仍失败: {last_error}")
-        return None
+        # 检查状态是否有变化
+        if current_has_position != last_has_position:
+            old_state = "有持仓" if last_has_position else "无持仓"
+            new_state = "有持仓" if current_has_position else "无持仓"
+            logger.warning(
+                f"[账户查询] 持仓状态变化: {old_state} → {new_state}，进行验证..."
+            )
+
+            # 额外验证 2 次
+            for verify_attempt in range(2):
+                await asyncio.sleep(retry_delay)
+                try:
+                    verify_result = await self.get_position()
+                    if verify_result is not None:
+                        logger.info("[账户查询] 验证成功，持仓确认")
+                        self._last_position_state = verify_result
+                        return verify_result
+                except Exception as e:
+                    logger.warning(f"[账户查询] 验证失败: {e}")
+
+            logger.warning("[账户查询] 验证多次仍不一致，以本次API返回为准")
+
+        # 更新状态
+        self._last_position_state = result
+
+        if result is None:
+            logger.debug(f"[账户查询] {self.symbol} 无持仓")
+        else:
+            logger.info(
+                f"[账户查询] 找到持仓: 方向={result['side']}, "
+                f"数量={result['amount']}, 入场价={result['entry_price']}"
+            )
+
+        return result
 
     async def get_position(self) -> Optional[Dict[str, Any]]:
         """获取当前持仓（只支持做多，空单自动标记平仓）"""
@@ -108,31 +98,27 @@ class AccountService:
             for pos in positions:
                 if pos["contracts"] and pos["contracts"] != 0:
                     side = pos["side"]
-                    # 只有在禁止做空时，才强制平仓空单
-                    # 如果允许做空，空单正常持有
                     if side == "short":
                         if not self.allow_short_selling:
-                            # 禁止做空时，强制平仓
                             logger.warning(
                                 f"[账户查询] 检测到空单(禁止做空): 数量={abs(pos['contracts'])}, "
                                 f"入场价={pos['entryPrice']}, 系统将自动平仓"
                             )
                             position_info = {
                                 "symbol": self.symbol,
-                                "side": "short_to_close",  # 标记为空单需平仓
+                                "side": "short_to_close",
                                 "amount": abs(pos["contracts"]),
                                 "entry_price": pos["entryPrice"],
                                 "unrealized_pnl": pos.get("unrealizedPnl", 0),
                             }
                         else:
-                            # 允许做空时，空单正常持有
                             logger.info(
                                 f"[账户查询] 检测到空单(允许做空): 数量={abs(pos['contracts'])}, "
                                 f"入场价={pos['entryPrice']}, 正常持有"
                             )
                             position_info = {
                                 "symbol": self.symbol,
-                                "side": "short",  # 正常空单，不平仓
+                                "side": "short",
                                 "amount": abs(pos["contracts"]),
                                 "entry_price": pos["entryPrice"],
                                 "unrealized_pnl": pos.get("unrealizedPnl", 0),
@@ -160,6 +146,8 @@ class AccountService:
             return None
 
 
-def create_account_service(exchange, symbol: str, allow_short_selling: bool = True) -> AccountService:
+def create_account_service(
+    exchange, symbol: str, allow_short_selling: bool = True
+) -> AccountService:
     """创建账户服务实例"""
     return AccountService(exchange, symbol, allow_short_selling)
