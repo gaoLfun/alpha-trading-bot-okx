@@ -170,16 +170,14 @@ class MarketRegimeDetector:
         """
         confidence = 0.5  # 基础置信度
 
-        # 1. 超卖检测 (高优先级)
+        # 1. 超卖检测 (高优先级) - 忽略波动率，直接返回超卖状态
+        # 超卖是潜在买入机会，不应该触发安全模式
         if rsi < self.RSI_THRESHOLDS["oversold"]:
-            if volatility_score > 0.7:
-                return MarketRegime.HIGH_VOLATILITY, 0.9
             return MarketRegime.OVERSOLD, 0.85
 
-        # 2. 超买检测
+        # 2. 超买检测 - 忽略波动率，直接返回超买状态
+        # 超买是潜在卖出机会，不应该触发安全模式
         if rsi > self.RSI_THRESHOLDS["overbought"]:
-            if volatility_score > 0.7:
-                return MarketRegime.HIGH_VOLATILITY, 0.9
             return MarketRegime.OVERBOUGHT, 0.85
 
         # 3. 强趋势检测
