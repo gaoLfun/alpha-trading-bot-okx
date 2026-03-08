@@ -329,42 +329,78 @@ class AISignalIntegrator:
 
             conf_history.append((0.5, "SHORT优化", original_confidence))
 
-        # ===== 0.6. 下跌趋势中 HOLD 转 SHORT =====
-        # 如果趋势向下但 AI 返回 hold，可以考虑转换为 short
-        if original_signal.upper() == "HOLD":
-            technical = market_data.get("technical", {})
-            trend_direction = technical.get("trend_direction", "neutral")
-            trend_strength = technical.get("trend_strength", 0)
-            price_position = technical.get("price_position", 0.5)
-            
-            # 获取短期跌幅（最近3根K线约15分钟）
-            short_term_drop = market_data.get("short_term_drop_percent", 0)
-
-            # 检查是否满足做空条件
-            is_downtrend = trend_direction == "down"
-            has_strength = trend_strength > 0.05  # 降低阈值从 0.10 到 0.05
-            has_significant_drop = short_term_drop < -0.5  # 最近3根K线跌幅超过0.5%即视为显著
-            not_too_low = price_position > 0.20  # 不在极低位
-            is_sustained_decline = (
-                decline_result and decline_result.is_detected
-            )
-
-            # 下跌趋势 + (有一定强度 或 显著跌幅) + 不是极低位 → 转换为 SHORT
-            if is_downtrend and (has_strength or has_significant_drop) and not_too_low:
-                logger.info(
-                    f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
-                    f"短期跌幅{short_term_drop:.2f}%, 价格位置{price_position*100:.0f}%, 持续下跌={is_sustained_decline}"
+            # ===== 0.6. 下跌趋势中 HOLD 转 SHORT =====
+            # 只有在明确的下跌趋势中才转换 HOLD → SHORT
+            # 条件：趋势强度 >= 0.30 + 显著跌幅 + 持续下跌确认 + RSI 确认
+            if original_signal.upper() == "HOLD":
+                technical = market_data.get("technical", {})
+                trend_direction = technical.get("trend_direction", "neutral")
+                trend_strength = technical.get("trend_strength", 0)
+                price_position = technical.get("price_position", 0.5)
+                
+                # 获取短期跌幅（最近3根K线约15分钟）
+                short_term_drop = market_data.get("short_term_drop_percent", 0)
+                
+                # RSI 条件：下跌趋势中 RSI 应该偏弱（<55）
+                rsi = technical.get("rsi", 50)
+                
+                # 检查是否满足做空条件（严格条件）
+                is_downtrend = trend_direction == "down"
+                has_strong_strength = trend_strength >= 0.30  # 必须有明显下跌趋势
+                has_significant_drop = short_term_drop < -1.5  # 短期跌幅 >= 1.5%
+                not_too_low = price_position > 0.30  # 不在极低位（>30%）
+                is_sustained_decline = (
+                    decline_result and decline_result.is_detected
                 )
-                original_signal = "SHORT"
-                # 设置一个基础置信度
-                if is_sustained_decline:
-                    original_confidence = 0.60  # 持续下跌时更高
+                rsi_confirms_down = rsi < 55  # RSI 确认下跌
+                
+                # 严格条件：必须同时满足
+                # 1. 明确下跌趋势（趋势强度 >= 0.30）
+                # 2. 显著短期跌幅（>= 1.5%）或持续下跌确认
+                # 3. 价格不在极低位（> 30%）
+                # 4. RSI 确认下跌（< 55）
+                should_convert = (
+                    is_downtrend and 
+                    has_strong_strength and 
+                    (has_significant_drop or is_sustained_decline) and
+                    not_too_low and
+                    rsi_confirms_down
+                )
+                
+                if should_convert:
+                    logger.info(
+                        f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
+                        f"短期跌幅{short_term_drop:.2f}%, 价格位置{price_position*100:.0f}%, "
+                        f"RSI={rsi:.1f}, 持续下跌={is_sustained_decline}"
+                    )
+                    original_signal = "SHORT"
+                    # 设置置信度
+                    if is_sustained_decline and has_significant_drop:
+                        original_confidence = 0.65  # 双重确认
+                    elif is_sustained_decline:
+                        original_confidence = 0.60  # 持续下跌确认
+                    else:
+                        original_confidence = 0.55  # 一般情况
+                    result.adjustments_made.append(
+                        f"信号转换: HOLD→SHORT (强下跌趋势)"
+                    )
+                    conf_history.append((0.6, "强下跌转换", original_confidence))
                 else:
-                    original_confidence = 0.50  # 一般下跌趋势
-                result.adjustments_made.append(
-                    f"信号转换: HOLD→SHORT (下跌趋势)"
-                )
-                conf_history.append((0.6, "下跌转换", original_confidence))
+                    # 记录不转换的原因
+                    if is_downtrend and original_signal.upper() == "HOLD":
+                        reasons = []
+                        if not has_strong_strength:
+                            reasons.append(f"趋势强度不足({trend_strength:.2f}<0.30)")
+                        if not (has_significant_drop or is_sustained_decline):
+                            reasons.append(f"跌幅不足({short_term_drop:.2f}%)或无持续下跌")
+                        if not not_too_low:
+                            reasons.append(f"价格位置过低({price_position*100:.0f}%<30%)")
+                        if not rsi_confirms_down:
+                            reasons.append(f"RSI未确认下跌({rsi:.1f}>=55)")
+                        if reasons:
+                            logger.info(
+                                f"[信号转换] HOLD 保持不变: {', '.join(reasons)}"
+                            )
 
         # ===== 0.7. 上涨趋势中 HOLD 转 BUY =====
         # 如果趋势向上但 AI 返回 hold，可以考虑转换为 buy
@@ -396,59 +432,128 @@ class AISignalIntegrator:
                 )
                 conf_history.append((0.55, "上涨转换", original_confidence))
 
-        # 1. AdaptiveBuyCondition
-            
-            # 获取近期跌幅（最近2个周期约30分钟）
-            recent_drop = market_data.get("recent_drop_percent", 0)
-
-            # 检查是否满足做空条件
-            is_downtrend = trend_direction == "down"
-            has_strength = trend_strength > 0.05  # 降低阈值从 0.10 到 0.05
-            has_significant_drop = recent_drop < -1.0  # 最近2周期跌幅超过1%即视为显著
-            not_too_low = price_position > 0.20  # 不在极低位
-            is_sustained_decline = (
-                decline_result and decline_result.is_detected
-            )
-
-            # 下跌趋势 + (有一定强度 或 显著跌幅) + 不是极低位 → 转换为 SHORT
-            if is_downtrend and (has_strength or has_significant_drop) and not_too_low:
-                logger.info(
-                    f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
-                    f"近期跌幅{recent_drop:.2f}%, 价格位置{price_position*100:.0f}%, 持续下跌={is_sustained_decline}"
+            # ===== 下跌趋势中 HOLD 转 SHORT (AdaptiveBuyCondition) =====
+            # 严格条件：趋势强度 >= 0.30 + RSI 确认
+            if original_signal.upper() == "HOLD":
+                technical = market_data.get("technical", {})
+                trend_direction = technical.get("trend_direction", "neutral")
+                trend_strength = technical.get("trend_strength", 0)
+                price_position = technical.get("price_position", 0.5)
+                rsi = technical.get("rsi", 50)
+                recent_drop = market_data.get("recent_drop_percent", 0)
+                
+                is_downtrend = trend_direction == "down"
+                has_strong_strength = trend_strength >= 0.30
+                has_significant_drop = recent_drop < -1.5
+                not_too_low = price_position > 0.30
+                is_sustained_decline = decline_result and decline_result.is_detected
+                rsi_confirms_down = rsi < 55
+                
+                should_convert = (
+                    is_downtrend and
+                    has_strong_strength and
+                    (has_significant_drop or is_sustained_decline) and
+                    not_too_low and
+                    rsi_confirms_down
                 )
-                original_signal = "SHORT"
-                # 设置一个基础置信度
-                if is_sustained_decline:
-                    original_confidence = 0.60  # 持续下跌时更高
-                else:
-                    original_confidence = 0.50  # 一般下跌趋势
-                result.adjustments_made.append(
-                    f"信号转换: HOLD→SHORT (下跌趋势)"
+                
+                if should_convert:
+                    logger.info(
+                        f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
+                        f"近期跌幅{recent_drop:.2f}%, 价格位置{price_position*100:.0f}%, "
+                        f"RSI={rsi:.1f}, 持续下跌={is_sustained_decline}"
+                    )
+                    original_signal = "SHORT"
+                    if is_sustained_decline and has_significant_drop:
+                        original_confidence = 0.65
+                    elif is_sustained_decline:
+                        original_confidence = 0.60
+                    else:
+                        original_confidence = 0.55
+                    result.adjustments_made.append(
+                        f"信号转换: HOLD→SHORT (强下跌趋势)"
+                    )
+                    conf_history.append((0.6, "强下跌转换", original_confidence))
+
+            # ===== 下跌趋势中 HOLD 转 SHORT (日跌幅检查) =====
+            # 严格条件：趋势强度 >= 0.30 + RSI 确认
+            if original_signal.upper() == "HOLD":
+                technical = market_data.get("technical", {})
+                trend_direction = technical.get("trend_direction", "neutral")
+                trend_strength = technical.get("trend_strength", 0)
+                price_position = technical.get("price_position", 0.5)
+                rsi = technical.get("rsi", 50)
+                
+                change_percent = market_data.get("change_percent", 0)
+                recent_drop = market_data.get("recent_drop_percent", 0)
+                
+                is_downtrend = trend_direction == "down"
+                has_strong_strength = trend_strength >= 0.30
+                has_significant_drop = change_percent < -2.0 or recent_drop < -1.5
+                not_too_low = price_position > 0.30
+                is_sustained_decline = decline_result and decline_result.is_detected
+                rsi_confirms_down = rsi < 55
+                
+                should_convert = (
+                    is_downtrend and
+                    has_strong_strength and
+                    (has_significant_drop or is_sustained_decline) and
+                    not_too_low and
+                    rsi_confirms_down
                 )
-                conf_history.append((0.6, "下跌转换", original_confidence))
-
-        # 1. AdaptiveBuyCondition
-        if self.adaptive_buy and self.config.enable_adaptive_buy:
-            
-            # 获取日跌幅
-            change_percent = market_data.get("change_percent", 0)
-            recent_drop = market_data.get("recent_drop_percent", 0)
-
-            # 检查是否满足做空条件
-            is_downtrend = trend_direction == "down"
-            has_strength = trend_strength > 0.05  # 降低阈值从 0.10 到 0.05
-            has_significant_drop = change_percent < -2.0 or recent_drop < -1.5  # 日跌幅显著或近期跌幅显著
-            not_too_low = price_position > 0.20  # 不在极低位
-            is_sustained_decline = (
-                decline_result and decline_result.is_detected
-            )
-
-            # 下跌趋势 + (有一定强度 或 显著跌幅) + 不是极低位 → 转换为 SHORT
-            if is_downtrend and (has_strength or has_significant_drop) and not_too_low:
-                logger.info(
-                    f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
-                    f"日跌幅{change_percent:.2f}%, 价格位置{price_position*100:.0f}%, 持续下跌={is_sustained_decline}"
+                
+                if should_convert:
+                    logger.info(
+                        f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
+                        f"日跌幅{change_percent:.2f}%, 价格位置{price_position*100:.0f}%, "
+                        f"RSI={rsi:.1f}, 持续下跌={is_sustained_decline}"
+                    )
+                    original_signal = "SHORT"
+                    if is_sustained_decline and has_significant_drop:
+                        original_confidence = 0.65
+                    elif is_sustained_decline:
+                        original_confidence = 0.60
+                    else:
+                        original_confidence = 0.55
+                    result.adjustments_made.append(
+                        f"信号转换: HOLD→SHORT (强下跌趋势)"
+                    )
+                    conf_history.append((0.6, "强下跌转换", original_confidence))
+                
+            # ===== 下跌趋势中 HOLD 转 SHORT (价格位置检查) =====
+            # 严格条件：趋势强度 >= 0.30 + RSI 确认  
+            if original_signal.upper() == "HOLD":
+                technical = market_data.get("technical", {})
+                trend_direction = technical.get("trend_direction", "neutral")
+                trend_strength = technical.get("trend_strength", 0)
+                price_position = technical.get("price_position", 0.5)
+                rsi = technical.get("rsi", 50)
+                
+                is_downtrend = trend_direction == "down"
+                has_strong_strength = trend_strength >= 0.30
+                not_too_low = price_position > 0.30
+                is_sustained_decline = decline_result and decline_result.is_detected
+                rsi_confirms_down = rsi < 55
+                
+                should_convert = (
+                    is_downtrend and
+                    has_strong_strength and
+                    is_sustained_decline and
+                    not_too_low and
+                    rsi_confirms_down
                 )
+                
+                if should_convert:
+                    logger.info(
+                        f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
+                        f"价格位置{price_position*100:.0f}%, RSI={rsi:.1f}, 持续下跌={is_sustained_decline}"
+                    )
+                    original_signal = "SHORT"
+                    original_confidence = 0.60
+                    result.adjustments_made.append(
+                        f"信号转换: HOLD→SHORT (强下跌趋势)"
+                    )
+                    conf_history.append((0.6, "强下跌转换", original_confidence))
 
             # 检查是否满足做空条件
             is_downtrend = trend_direction == "down"
