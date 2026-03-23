@@ -224,11 +224,11 @@ class PromptBuilder:
             deepseek_rebound_warning = f"""
 🎯 【Deepseek低位反弹模式】已触发：
    - 价格位置 < 35%（低位区间）
-   - RSI 在 {cls.OVERSOLD_RSI_THRESHOLD}-{cls.DEEPSEEK_REBOUND_RSI_MAX} 区间
+   - RSI 在 {cls._cfg().oversold_rsi_threshold:.0f}-{cls._cfg().deepseek_rebound_rsi_max:.0f} 区间
    - 可适当放宽买入条件，积极参与反弹行情
-   - 趋势为 "up" 或 "neutral" 时，RSI < 58 即可考虑买入
-   - 布林带位置 < 60%（原 < {cls.BUY_BB_POSITION}%）
-   - 趋势强度 > 0.15 即可（原 > {cls.BUY_TREND_STRENGTH}）
+   - 趋势为 "up" 或 "neutral" 时，RSI < {cls._cfg().deepseek_rebound_rsi_max:.0f} 即可考虑买入
+   - 布林带位置 < 60%（原 < {cls._cfg().buy_bb_position:.0f}%）
+   - 趋势强度 > 0.15 即可（原 > {cls._cfg().buy_trend_strength}）
 """
 
         # Kimi 高波动风险提示
@@ -292,21 +292,21 @@ class PromptBuilder:
       - 趋势不明朗 → HOLD
 
 1. 买入条件（BUY，无持仓+上涨趋势时）:
-   趋势方向为 "up" 或 "neutral" 且 趋势强度 > {cls.BUY_TREND_STRENGTH}
-   RSI < {cls.BUY_RSI_THRESHOLD} （非超买区域）
+   趋势方向为 "up" 或 "neutral" 且 趋势强度 > {cls._cfg().buy_trend_strength}
+   RSI < {cls._cfg().buy_rsi_threshold:.0f} （非超买区域）
    MACD Histogram > 0 （多头动能）
-   布林带位置 < {cls.BUY_BB_POSITION}% （价格在中轨下方）
-   ADX > {cls.BUY_ADX_THRESHOLD} （有趋势）
+   布林带位置 < {cls._cfg().buy_bb_position:.0f}% （价格在中轨下方）
+   ADX > {cls._cfg().buy_adx_threshold:.0f} （有趋势）
    ⚠️ 1小时跌幅 > -2% 时，禁止买入！
    ⚠️ 趋势方向为 "down" 时，禁止买入！
 
-2. 超卖反弹模式（RSI < 30 且 1h跌幅在 -1.5% ~ -2.5% 区间）:
+2. 超卖反弹模式（RSI < {cls._cfg().oversold_rsi_threshold:.0f} 且 1h跌幅在 -1.5% ~ -2.5% 区间）:
    - 可适当放宽买入条件，允许买入
-   - 趋势强度要求降至 > 0.10（原 > {cls.BUY_TREND_STRENGTH}）
-   - RSI < 35 即可（原 < {cls.BUY_RSI_THRESHOLD}）
-   - 布林带位置 < 50%（原 < {cls.BUY_BB_POSITION}%）
-   - ADX > 10 即可（原 > {cls.BUY_ADX_THRESHOLD}）
-   - ⚠️ 仓位控制在正常仓位的 {cls.OVERSOLD_POSITION_FACTOR:.0%}
+   - 趋势强度要求降至 > 0.10（原 > {cls._cfg().buy_trend_strength}）
+   - RSI < 35 即可（原 < {cls._cfg().buy_rsi_threshold:.0f}）
+   - 布林带位置 < 50%（原 < {cls._cfg().buy_bb_position:.0f}%）
+   - ADX > 10 即可（原 > {cls._cfg().buy_adx_threshold:.0f}）
+   - ⚠️ 仓位控制在正常仓位的 {cls._cfg().oversold_position_factor:.0%}
    - ⚠️ 1小时跌幅 < -2.5% 时，禁止抄底
    - ⚠️ 暴跌期间（1小时跌幅 > -2%），禁止开仓
    - ⚠️ 暴跌期间（1小时跌幅 > -2%），有持仓则优先考虑减仓或止损
@@ -315,8 +315,8 @@ class PromptBuilder:
 
    【模式A：高位反转做空】（适用于震荡或反弹后的高点）
    - 趋势方向为 "down" 且 趋势强度 > 0.15（明确下跌趋势）
-   - RSI > {cls.SELL_RSI_THRESHOLD}（超买区域，可做空）
-   - 布林带位置 > {cls.SELL_BB_POSITION}%（价格在中轨上方，可做空）
+   - RSI > {cls._cfg().sell_rsi_threshold:.0f}（超买区域，可做空）
+   - 布林带位置 > {cls._cfg().sell_bb_position:.0f}%（价格在中轨上方，可做空）
    - MACD Histogram < -0.001（空头动能）
    - ⚠️ 禁止逆势做空（趋势为"up"时绝不做空）
    - ⚠️ 禁止在支撑位做空（价格位置 < 30%）
@@ -423,7 +423,7 @@ TH|
 - +10% 趋势明确向下（strength > 0.4）
 - +10% RSI > 75（超买区域）
 - +10% MACD Histogram < 0（空头动能）
-- +10% 布林带位置 > {cls.SELL_BB_POSITION}%（价格在中轨上方）
+- +10% 布林带位置 > {cls._cfg().sell_bb_position:.0f}%（价格在中轨上方）
 
 - +10% 持仓浮亏 > -3%（触发止损保护）  # 放宽（原-2%）
 - -15% 趋势为 "up"  # 提高惩罚（原-20%）
