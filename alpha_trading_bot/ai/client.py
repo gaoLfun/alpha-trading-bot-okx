@@ -453,6 +453,19 @@ class AIClient:
         """判断是否应该重试"""
         error_str = str(error).lower()
 
+        # 不重试的错误（客户端问题，不会因重试而解决）
+        no_retry_keywords = [
+            "余额不足",
+            "insufficient balance",
+            "quota",
+            "limit",
+        ]
+
+        for keyword in no_retry_keywords:
+            if keyword in error_str:
+                logger.info(f"[AI重试] {provider} 遇到不需重试的错误: {keyword}")
+                return False
+
         # 始终重试的错误类型
         retry_keywords = [
             "connection",
