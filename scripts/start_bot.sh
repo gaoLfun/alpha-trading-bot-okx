@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 # Alpha Trading Bot 启动脚本
 
 echo "正在启动 Alpha Trading Bot..."

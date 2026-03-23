@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 # Alpha Trading Bot 启动脚本
 
 # 激活虚拟环境
