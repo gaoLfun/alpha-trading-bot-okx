@@ -559,25 +559,22 @@ class AISignalIntegrator:
 
                 # 如果是高风险，降低置信度
                 if btc_result.is_high_risk and original_signal == "BUY":
-                    # 如果已经在持续下跌中，风险更大
-                    penalty = (
-                        self._t().btc_high_risk_penalty
-                        if (decline_result and decline_result.is_detected)
-                        else self._t().btc_high_risk_penalty_no_decline
-                    )
-                    old_conf = original_confidence
-                    original_confidence *= 1 - penalty
-                    result.adjustments_made.append(
-                        f"BTC检测: 高位风险+持续下跌，置信度降低{penalty * 100:.0f}% ({old_conf:.0%}→{original_confidence:.0%})"
-                    )
-                    conf_history.append((3, "BTC高位", original_confidence))
-                elif btc_result.is_high_risk and original_signal == "BUY":
-                    old_conf = original_confidence
-                    original_confidence *= self._t().btc_high_risk_penalty_no_decline
-                    result.adjustments_made.append(
-                        f"BTC检测: 高位风险，置信度降低{int((1 - self._t().btc_high_risk_penalty_no_decline) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
-                    )
-                    conf_history.append((3, "BTC高位", original_confidence))
+                    if decline_result and decline_result.is_detected:
+                        penalty = self._t().btc_high_risk_penalty
+                        old_conf = original_confidence
+                        original_confidence *= 1 - penalty
+                        result.adjustments_made.append(
+                            f"BTC检测: 高位风险+持续下跌，置信度降低{penalty * 100:.0f}% ({old_conf:.0%}→{original_confidence:.0%})"
+                        )
+                        conf_history.append((3, "BTC高位", original_confidence))
+                    else:
+                        penalty = self._t().btc_high_risk_penalty_no_decline
+                        old_conf = original_confidence
+                        original_confidence *= penalty
+                        result.adjustments_made.append(
+                            f"BTC检测: 高位风险，置信度降低{int((1 - penalty) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
+                        )
+                        conf_history.append((3, "BTC高位", original_confidence))
 
                 # 如果是低机会，增加置信度
                 if btc_result.is_low_opportunity and original_signal == "BUY":
