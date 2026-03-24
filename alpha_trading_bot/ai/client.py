@@ -329,10 +329,10 @@ class AIClient:
                 f"[AI融合] 以下提供商调用失败: {failed_providers}, 成功: {[p for p in providers if p not in failed_providers]}"
             )
 
-        # 如果所有提供商都失败，尝试备用方案
+        # 如果所有提供商都失败，直接返回默认HOLD信号，不再尝试备用方案
         if not signals:
-            logger.warning("[AI融合] 所有AI提供商都失败，尝试备用方案...")
-            return await self._fallback_fusion(market_data)
+            logger.warning("[AI融合] 所有AI提供商都失败，返回默认HOLD信号")
+            return "hold", 0.40
 
         # 使用融合策略
         strategy = self._get_fusion_strategy(self.config.fusion_strategy)
