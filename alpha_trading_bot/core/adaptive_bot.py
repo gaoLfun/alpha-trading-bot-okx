@@ -440,8 +440,14 @@ class AdaptiveTradingBot:
             self.param_manager.config.apply_adjustments(rule_adjustments)
 
         # 应用风险控制（传入规则调整）
+        # action=reduce 开仓时按做多计算止损，传入 side="buy"
+        side_for_params = "buy" if action == "reduce" else action
         risk_params = self.risk_manager.calculate_trade_params(
-            {"side": action, "price": current_price, "entry_price": current_price},
+            {
+                "side": side_for_params,
+                "price": current_price,
+                "entry_price": current_price,
+            },
             market_data,
             risk_score=0.5,
             rule_adjustments=rule_adjustments,
