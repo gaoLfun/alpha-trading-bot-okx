@@ -34,11 +34,11 @@ class DecisionEngine:
         if is_safe_mode and is_downtrend and ai_signal.upper() == "SHORT":
             logger.info("[安全] 下跌趋势中，安全模式允许 SHORT 信号")
         elif is_safe_mode:
-            logger.warning(f"[安全] 安全模式触发: {selected.reasons}")
+            logger.warning(f"[安全] 安全模式触发，降低仓位: {selected.reasons}")
             return {
-                "action": "skip",
-                "reason": f"安全模式强制暂停: {selected.reasons}",
-                "confidence": 1.0,
+                "action": "reduce",
+                "reason": f"安全模式降低仓位: {selected.reasons}",
+                "confidence": selected.confidence * 0.5,
                 "strategy": "safe_mode",
             }
         if ai_signal.upper() == "BUY":

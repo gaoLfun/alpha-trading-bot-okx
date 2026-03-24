@@ -197,9 +197,9 @@ class HighPriceBuyOptimizer:
         # 6.4 趋势强度检查
         if trend_strength < thresholds["trend_strength_threshold"]:
             adjusted_confidence = max(
-                adjusted_confidence - (0.10 * penalty_factor), 0.35
+                adjusted_confidence - (0.05 * penalty_factor), 0.35
             )
-            adjustment_reason += f"趋势强度不足({trend_strength:.2f}<{thresholds['trend_strength_threshold']:.2f}): 置信度降低{10 * penalty_factor:.0f}%; "
+            adjustment_reason += f"趋势强度不足({trend_strength:.2f}<{thresholds['trend_strength_threshold']:.2f}): 置信度降低{5 * penalty_factor:.0f}%; "
             penalty_applied = True
 
         # 6.5 价格位置上升惩罚

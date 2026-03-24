@@ -453,6 +453,59 @@ class AdaptiveTradingBot:
                 await self._update_stop_loss(current_price, position_data)
             return
 
+        if action == "reduce":
+            if has_position:
+                position = position_data.get("position")
+                if position and position.get("amount", 0) > 0:
+                    reduce_amount = position["amount"] * 0.5
+                    position_side = position.get("side", "long")
+                    order_side = "sell" if position_side == "long" else "buy"
+                    logger.info(
+                        f"[执行] 降低仓位: 平仓50% = {reduce_amount}, 方向={order_side}"
+                    )
+                    await self._exchange.create_order(
+                        symbol=self._exchange.symbol,
+                        side=order_side,
+                        amount=reduce_amount,
+                    )
+                    new_amount = position["amount"] - reduce_amount
+                    if new_amount > 0:
+                        self.position_manager.update_position(
+                            amount=new_amount,
+                            entry_price=position.get("entry_price", current_price),
+                            symbol=self._exchange.symbol,
+                            side=position_side,
+                        )
+            else:
+                logger.info("[执行] 降低仓位: 无持仓 → 50%仓位开仓")
+                suggested_amount = risk_params.get("suggested_position", 0.01) * 0.5
+                max_amount = 0.01
+                amount = min(suggested_amount, max_amount)
+                stop_loss_price = risk_params.get("stop_loss_price")
+                position_side = "long"
+                order_side = "buy"
+                order_id = await self._exchange.create_order(
+                    symbol=self._exchange.symbol,
+                    side=order_side,
+                    amount=amount,
+                )
+                if order_id:
+                    self.position_manager.update_position(
+                        amount=amount,
+                        entry_price=current_price,
+                        symbol=self._exchange.symbol,
+                        side=position_side,
+                    )
+                    if stop_loss_price:
+                        await self._create_stop_loss_with_retry(
+                            amount=amount,
+                            stop_price=stop_loss_price,
+                            current_price=current_price,
+                            position_side=position_side,
+                            max_retries=3,
+                        )
+            return
+
         # 类型断言
         assert self._exchange is not None, "Exchange client not initialized"
         # 开仓操作: action = "open" (做多) 或 action = "sell" (做空)
