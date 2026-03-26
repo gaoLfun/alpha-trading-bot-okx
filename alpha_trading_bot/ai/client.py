@@ -525,6 +525,15 @@ class AIClient:
                     json=data,
                     timeout=timeout_config,
                 ) as response:
+                    # 检查HTTP状态码
+                    if response.status != 200:
+                        response_text = await response.text()
+                        logger.error(
+                            f"AI[{provider}]HTTP错误: status={response.status}, body={response_text[:500]}"
+                        )
+                        raise ValueError(
+                            f"AI[{provider}]HTTP {response.status}: {response_text[:200]}"
+                        )
                     result = await response.json()
                     # 检查响应是否包含有效的choices字段
                     if "choices" not in result or not result["choices"]:
@@ -558,8 +567,14 @@ class AIClient:
 
         except ValueError:
             raise
+        except aiohttp.ClientError as e:
+            logger.error(f"AI[{provider}]网络错误: {type(e).__name__}: {e}")
+            raise ValueError(f"AI[{provider}]网络错误: {e}") from e
+        except asyncio.TimeoutError:
+            logger.error(f"AI[{provider}]请求超时")
+            raise ValueError(f"AI[{provider}]请求超时")
         except Exception as e:
-            logger.error(f"AI[{provider}]调用失败: {e}")
+            logger.error(f"AI[{provider}]调用失败: {type(e).__name__}: {e}")
             raise
 
     def _get_timeout_config(self, provider: str) -> "aiohttp.ClientTimeout":
