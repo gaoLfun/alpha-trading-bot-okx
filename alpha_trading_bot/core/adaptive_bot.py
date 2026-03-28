@@ -519,6 +519,9 @@ class AdaptiveTradingBot:
                             position_side=position_side,
                             max_retries=3,
                         )
+            # 有持仓时，即使跳过降低仓位，也应该更新止损
+            if has_position:
+                await self._update_stop_loss(current_price, position_data)
             return
 
         # 类型断言
