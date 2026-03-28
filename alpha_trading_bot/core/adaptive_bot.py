@@ -819,15 +819,16 @@ class AdaptiveTradingBot:
 
         # === 根据多空方向决定是否更新止损 ===
         if position_side == "short":
-            # 做空：current_price < entry 为盈利（止损下浮），current_price >= entry 为亏损（止损上浮）
+            # 做空：current_price < entry 为盈利（止损下浮），current_price >= entry 为亏损（止损不变）
             if current_price < entry_price:
                 logger.info(
                     f"[止损更新] 做空盈利({current_price} < {entry_price})，止损跟随下浮"
                 )
             else:
                 logger.info(
-                    f"[止损更新] 做空亏损({current_price} >= {entry_price})，止损跟随上浮"
+                    f"[止损更新] 做空亏损({current_price} >= {entry_price})，止损不变，跳过更新"
                 )
+                return
         else:
             # 做多：current_price > entry 为盈利（止损上浮），current_price <= entry 为亏损（止损不变）
             if current_price <= entry_price:
