@@ -814,21 +814,19 @@ class AdaptiveTradingBot:
                 )
                 return
         else:
-            # 做多：current_price > entry 为盈利（止损上浮），current_price <= entry 为亏损（止损不变）
-            if current_price <= entry_price:
-                logger.info(
-                    f"[止损更新] 做多亏损/保本({current_price} <= {entry_price})，止损不变，跳过更新"
-                )
-                return
-            # 做多：止损只升不降
             if existing_stop_id and new_stop_price <= old_stop:
                 logger.info(
                     f"[止损更新] 做多止损未上升({new_stop_price:.1f} <= {old_stop:.1f})，跳过更新"
                 )
                 return
-            logger.info(
-                f"[止损更新] 做多盈利({current_price} > {entry_price})，止损上浮"
-            )
+            if current_price > entry_price:
+                logger.info(
+                    f"[止损更新] 做多盈利({current_price} > {entry_price})，止损上浮"
+                )
+            else:
+                logger.info(
+                    f"[止损更新] 做多亏损/保本({current_price} <= {entry_price})，但新止损更高，执行更新"
+                )
 
         # === 容差检查：避免频繁更新 ===
         tolerance = 0.002  # 0.2% 容差
