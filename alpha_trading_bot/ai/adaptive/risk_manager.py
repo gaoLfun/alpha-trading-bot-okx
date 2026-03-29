@@ -150,21 +150,25 @@ class HardStopLossBoundary(RiskBoundary):
 
     def apply(self, signal: Dict) -> Dict:
         """
-        为信号添加硬止损价格
+        为信号添加止损价格
 
-        如果没有提供止损价格，添加硬止损
+        如果没有提供止损价格，使用基础止损百分比 (stop_loss_percent)
+        注意：这里使用 stop_loss_percent (0.5%) 而不是 hard_stop_loss_percent (5%)
+        hard_stop_loss_percent 仅用于触发检测，不用于初始止损计算
         """
         if "stop_loss_price" not in signal:
             entry_price = signal.get("entry_price", 0)
             side = signal.get("side", "")
             is_long = side in ["buy", "open", "long"]
             if entry_price and is_long:
+                # 做多：止损 = 入场价 × (1 - stop_loss_percent)
                 signal["stop_loss_price"] = entry_price * (
-                    1 - self.config.hard_stop_loss_percent
+                    1 - self.config.stop_loss_percent  # 0.005 = 0.5%
                 )
             elif entry_price:
+                # 做空：止损 = 入场价 × (1 + stop_loss_percent)
                 signal["stop_loss_price"] = entry_price * (
-                    1 + self.config.hard_stop_loss_percent
+                    1 + self.config.stop_loss_percent  # 0.005 = 0.5%
                 )
 
         signal["hard_stop_loss_percent"] = self.config.hard_stop_loss_percent
