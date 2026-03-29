@@ -540,10 +540,6 @@ class AdaptiveTradingBot:
             amount = min(suggested_amount, max_amount)
             stop_loss_price = risk_params.get("stop_loss_price")
 
-            take_profit_price = self._take_profit_calculator.calculate(
-                current_price, position_side
-            )
-
             # 下市价单开仓 (根据 position_side 决定买入还是卖出)
             order_side = "buy" if position_side == "long" else "sell"
 
@@ -582,26 +578,6 @@ class AdaptiveTradingBot:
                     logger.info(f"[执行] 止损单已设置: {stop_loss_price}")
                 else:
                     logger.warning("[执行] 止损单创建失败")
-
-            # 设置止盈单
-            if take_profit_price:
-                tp_side = "sell" if position_side == "long" else "buy"
-                try:
-                    tp_result = await self._exchange.create_take_profit(
-                        symbol=symbol,
-                        side=tp_side,
-                        amount=amount,
-                        take_profit_price=take_profit_price,
-                    )
-                    if tp_result and tp_result.get("algo_id"):
-                        self.position_manager.set_take_profit_order(
-                            tp_result["algo_id"], take_profit_price
-                        )
-                        logger.info(f"[执行] 止盈单已设置: {take_profit_price}")
-                    else:
-                        logger.warning(f"[执行] 止盈单创建失败: {tp_result}")
-                except Exception as e:
-                    logger.warning(f"[执行] 止盈单创建异常: {e}")
         elif action in ["close", "close_short"]:
             if not has_position:
                 logger.info("[执行] 无持仓，跳过平仓")
