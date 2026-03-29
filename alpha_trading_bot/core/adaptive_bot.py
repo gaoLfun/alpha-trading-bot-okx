@@ -12,7 +12,7 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 
 from .trading_scheduler import TradingScheduler
@@ -702,7 +702,7 @@ class AdaptiveTradingBot:
     ) -> None:
         """更新止损订单（带容错判断，避免频繁更新）"""
         # === P0: 先查询交易所实际止损单状态 ===
-        existing_stop_id = await self._get_existing_stop_order_id()
+        existing_stop_id, exchange_stop_price = await self._get_existing_stop_order_id()
 
         # === P1: 获取参数和计算止损百分比 ===
         params = self.param_manager.get_current_params()
@@ -786,7 +786,11 @@ class AdaptiveTradingBot:
                 logger.error("[止损更新] 止损单创建失败")
             return
 
-        old_stop = self.position_manager.last_stop_price
+        old_stop = (
+            exchange_stop_price
+            if exchange_stop_price
+            else self.position_manager.last_stop_price
+        )
         logger.info(
             f"[止损调试] current_price={current_price}, old_stop={old_stop}, new_stop={new_stop_price}"
         )
@@ -868,27 +872,27 @@ class AdaptiveTradingBot:
         else:
             logger.error("[止损更新] 止损单创建失败")
 
-    async def _get_existing_stop_order_id(self) -> Optional[str]:
-        """查询交易所中现有的止损单ID"""
+    async def _get_existing_stop_order_id(
+        self,
+    ) -> Tuple[Optional[str], Optional[float]]:
+        """查询交易所中现有的止损单ID和止损价格"""
         try:
             algo_orders = await self._exchange.get_algo_orders(self._exchange.symbol)
             for order in algo_orders:
-                # CCXT 返回结构: order["info"] 包含 algoId 和 slTriggerPx
                 info = order.get("info", {})
                 algo_id = info.get("algoId")
 
-                # 检查是否是止损单
                 if algo_id:
                     stop_price = info.get("slTriggerPx") or info.get("stopLossPrice")
                     if stop_price:
                         logger.info(
                             f"[止损查询] 找到现有止损单: algoId={algo_id}, 止损价={stop_price}"
                         )
-                        return str(algo_id)
+                        return str(algo_id), float(stop_price)
             logger.debug("[止损查询] 无现有止损单")
         except Exception as e:
             logger.warning(f"[止损查询] 查询失败: {e}")
-        return None
+        return None, None
 
     def get_system_status(self) -> Dict[str, Any]:
         """获取系统状态"""
