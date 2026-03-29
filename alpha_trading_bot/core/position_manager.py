@@ -42,6 +42,10 @@ class PositionManager:
         self._take_profit_order_id: Optional[str] = None  # 止盈单ID
         self._last_take_profit_price: float = 0.0  # 上次设置的止盈价
 
+        # 追踪持仓期间的最高价/最低价（真正的追踪止损）
+        self._highest_price_since_entry: float = 0.0  # 做多时追踪最高价
+        self._lowest_price_since_entry: float = 0.0  # 做空时追踪最低价
+
         # 初始化持久化管理器
         self._persistence = create_state_persistence(data_dir)
 
@@ -64,11 +68,18 @@ class PositionManager:
                 self._entry_price = state.position.entry_price
                 self._stop_order_id = state.position.stop_order_id
                 self._last_stop_price = state.position.last_stop_price  # 恢复上次止损价
+                self._highest_price_since_entry = (
+                    state.position.highest_price_since_entry
+                )  # 恢复做多最高价
+                self._lowest_price_since_entry = (
+                    state.position.lowest_price_since_entry
+                )  # 恢复做空最低价
 
                 logger.info(
                     f"[持久化恢复] 已恢复持仓: {self._position.symbol} "
                     f"{self._position.side} {self._position.amount}@{self._position.entry_price}, "
-                    f"止损单: {self._stop_order_id}, 上次止损价: {self._last_stop_price}"
+                    f"止损单: {self._stop_order_id}, 上次止损价: {self._last_stop_price}, "
+                    f"做多最高价: {self._highest_price_since_entry}, 做空最低价: {self._lowest_price_since_entry}"
                 )
         except Exception as e:
             logger.warning(f"[持久化恢复] 恢复状态失败: {e}")
@@ -100,6 +111,39 @@ class PositionManager:
         """获取上次设置的止损价"""
         return self._last_stop_price
 
+    @property
+    def highest_price_since_entry(self) -> float:
+        """获取做多时追踪的最高价"""
+        return self._highest_price_since_entry
+
+    @property
+    def lowest_price_since_entry(self) -> float:
+        """获取做空时追踪的最低价"""
+        return self._lowest_price_since_entry
+
+    def update_price_tracking(self, current_price: float, position_side: str) -> None:
+        """更新价格追踪（追踪持仓期间的最高/最低价）"""
+        if position_side == "long":
+            if current_price > self._highest_price_since_entry:
+                self._highest_price_since_entry = current_price
+                logger.info(
+                    f"[价格追踪] 更新做多最高价: {self._highest_price_since_entry}"
+                )
+        elif position_side == "short":
+            if (
+                current_price < self._lowest_price_since_entry
+                or self._lowest_price_since_entry == 0
+            ):
+                self._lowest_price_since_entry = current_price
+                logger.info(
+                    f"[价格追踪] 更新做空最低价: {self._lowest_price_since_entry}"
+                )
+
+    def reset_price_tracking(self) -> None:
+        """重置价格追踪（新开仓时调用）"""
+        self._highest_price_since_entry = 0.0
+        self._lowest_price_since_entry = 0.0
+
     def has_position(self) -> bool:
         """是否有持仓"""
         return self._position is not None and self._entry_price > 0
@@ -123,6 +167,8 @@ class PositionManager:
                 entry_price=position_data["entry_price"],
                 stop_order_id=self._stop_order_id,
                 last_stop_price=self._last_stop_price,
+                highest_price_since_entry=self._highest_price_since_entry,
+                lowest_price_since_entry=self._lowest_price_since_entry,
             )
 
             logger.info(
@@ -322,6 +368,8 @@ class PositionManager:
                 entry_price=self._entry_price,
                 stop_order_id=stop_order_id,
                 last_stop_price=self._last_stop_price,
+                highest_price_since_entry=self._highest_price_since_entry,
+                lowest_price_since_entry=self._lowest_price_since_entry,
             )
 
         logger.debug(f"[止损单] 设置止损单ID: {stop_order_id}, 止损价: {stop_price}")
@@ -341,8 +389,8 @@ class PositionManager:
                 side=self._position.side,
                 amount=self._position.amount,
                 entry_price=self._entry_price,
-                take_profit_order_id=take_profit_order_id,
-                last_take_profit_price=self._last_take_profit_price,
+                highest_price_since_entry=self._highest_price_since_entry,
+                lowest_price_since_entry=self._lowest_price_since_entry,
             )
 
         logger.debug(
@@ -384,6 +432,8 @@ class PositionManager:
         self._entry_price = 0.0
         self._stop_order_id = None
         self._last_stop_price = 0.0
+        self._highest_price_since_entry = 0.0
+        self._lowest_price_since_entry = 0.0
 
         # 持久化清空
         self._persistence.clear_position()
@@ -405,6 +455,9 @@ class PositionManager:
             logger.warning(f"[持仓更新] 无效的持仓方向: {side}, 默认为做多")
             side = "long"
 
+        # 重置价格追踪（新开仓时）
+        self.reset_price_tracking()
+
         self._entry_price = entry_price
         self._position = Position(
             symbol=symbol,
@@ -421,6 +474,8 @@ class PositionManager:
             entry_price=entry_price,
             stop_order_id=self._stop_order_id,
             last_stop_price=self._last_stop_price,
+            highest_price_since_entry=self._highest_price_since_entry,
+            lowest_price_since_entry=self._lowest_price_since_entry,
         )
 
         # 记录开仓交易

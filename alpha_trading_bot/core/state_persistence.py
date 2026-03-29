@@ -34,6 +34,8 @@ class PositionState:
     last_stop_price: float = 0.0  # 上次设置的止损价
     take_profit_order_id: Optional[str] = None  # 止盈单ID
     last_take_profit_price: float = 0.0  # 上次设置的止盈价
+    highest_price_since_entry: float = 0.0  # 做多时追踪的最高价
+    lowest_price_since_entry: float = 0.0  # 做空时追踪的最低价
     updated_at: str = ""
 
 
@@ -96,6 +98,8 @@ class StatePersistence:
         stop_order_id: Optional[str] = None,
         unrealized_pnl: float = 0.0,
         last_stop_price: float = 0.0,
+        highest_price_since_entry: float = 0.0,
+        lowest_price_since_entry: float = 0.0,
     ) -> bool:
         """
         保存持仓状态
@@ -107,6 +111,8 @@ class StatePersistence:
             entry_price: 入场价
             stop_order_id: 止损单ID
             unrealized_pnl: 未实现盈亏
+            highest_price_since_entry: 做多时追踪的最高价
+            lowest_price_since_entry: 做空时追踪的最低价
 
         Returns:
             是否保存成功
@@ -124,6 +130,8 @@ class StatePersistence:
                 unrealized_pnl=unrealized_pnl,
                 stop_order_id=stop_order_id,
                 last_stop_price=last_stop_price,
+                highest_price_since_entry=highest_price_since_entry,
+                lowest_price_since_entry=lowest_price_since_entry,
                 updated_at=datetime.now().isoformat(),
             )
             state.last_trade_time = datetime.now().isoformat()
@@ -221,6 +229,12 @@ class StatePersistence:
                         unrealized_pnl=pos_data.get("unrealized_pnl", 0),
                         stop_order_id=pos_data.get("stop_order_id"),
                         last_stop_price=pos_data.get("last_stop_price", 0),
+                        highest_price_since_entry=pos_data.get(
+                            "highest_price_since_entry", 0.0
+                        ),
+                        lowest_price_since_entry=pos_data.get(
+                            "lowest_price_since_entry", 0.0
+                        ),
                         updated_at=pos_data.get("updated_at", ""),
                     )
 
