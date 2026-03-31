@@ -52,7 +52,7 @@ class BuyConditions:
 
     # 强势支撑模式参数
     support_enabled: bool = True
-    support_price_position_max: float = 40  # 35→40，放宽支撑位范围
+    support_price_position_max: float = 0.40
     support_rsi_max: float = 45  # 保持45
     support_momentum_min: float = 0.002  # 保持0.002
     support_position_factor: float = 0.85  # 0.8→0.85
@@ -452,9 +452,9 @@ class AdaptiveBuyCondition:
         base_confidence = 0.60
 
         # 极低位置加分
-        if price_position < 15:
+        if price_position < 0.15:
             base_confidence += 0.15
-        elif price_position < 20:
+        elif price_position < 0.20:
             base_confidence += 0.10
 
         # RSI严重偏低加分

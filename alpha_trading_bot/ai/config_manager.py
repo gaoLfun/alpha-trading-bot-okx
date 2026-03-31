@@ -54,7 +54,7 @@ class BuyConditionsConfig:
 
     # 强势支撑模式
     support_enabled: bool = True
-    support_price_position_max: float = 20
+    support_price_position_max: float = 0.20
     support_rsi_max: float = 35
     support_momentum_min: float = 0.003
     support_position_factor: float = 0.7
@@ -115,7 +115,7 @@ class TrendDetectionConfig:
     reversal_momentum_threshold: float = 0.008
     rsi_oversold: float = 30
     rsi_rebound_threshold: float = 3
-    price_position_low: float = 25
+    price_position_low: float = 0.25
 
 
 @dataclass

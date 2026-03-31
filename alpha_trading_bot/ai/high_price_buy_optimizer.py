@@ -24,10 +24,9 @@ logger = logging.getLogger(__name__)
 class HighPriceBuyConfig:
     """高位买入优化配置"""
 
-    # 价格位置阈值 - 牛市中大幅放宽
-    price_position_threshold_low: float = 35  # 低价位时
-    price_position_threshold_mid: float = 55  # 中价位时
-    price_position_threshold_high: float = 70  # 高价位时：牛市中放宽
+    price_position_threshold_low: float = 0.35
+    price_position_threshold_mid: float = 0.55
+    price_position_threshold_high: float = 0.70
 
     # 价格水平划分
     price_level_mid_threshold: float = 0.70  # 价格>近期70%为中高位
@@ -225,12 +224,10 @@ class HighPriceBuyOptimizer:
         reward_reason = ""
 
         # 6.7.1 极低价位奖励
-        if price_position < 20:
+        if price_position < 0.20:
             reward = 0.15
             adjusted_confidence += reward
-            reward_reason += (
-                f"极低位(位置{price_position:.1f}%<20%): 置信度+{reward * 100:.0f}%; "
-            )
+            reward_reason += f"极低位(位置{price_position * 100:.1f}%<20%): 置信度+{reward * 100:.0f}%; "
             reward_applied = True
         # 6.7.2 超卖奖励
         elif rsi < 30:

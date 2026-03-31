@@ -35,9 +35,9 @@ class AdaptiveConfig:
     base_oversold_rsi_max: float = 38.0
     base_oversold_momentum_min: float = 0.004
     base_oversold_trend_strength_min: float = 0.12
-    base_oversold_bb_position_max: float = 42.0
+    base_oversold_bb_position_max: float = 0.42
     base_oversold_position_factor: float = 0.55
-    base_support_price_position_max: float = 40.0
+    base_support_price_position_max: float = 0.40
     base_support_position_factor: float = 0.85
 
     # === 新增：signal_optimizer 参数 ===
@@ -56,9 +56,9 @@ class AdaptiveConfig:
     current_oversold_rsi_max: float = 38.0
     current_oversold_momentum_min: float = 0.004
     current_oversold_trend_strength_min: float = 0.12
-    current_oversold_bb_position_max: float = 42.0
+    current_oversold_bb_position_max: float = 0.42
     current_oversold_position_factor: float = 0.55
-    current_support_price_position_max: float = 40.0
+    current_support_price_position_max: float = 0.40
     current_support_position_factor: float = 0.85
 
     # === 新增：signal_optimizer 当前值 ===
