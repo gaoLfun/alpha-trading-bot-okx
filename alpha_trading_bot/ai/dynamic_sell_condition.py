@@ -120,7 +120,7 @@ class DynamicSellCondition:
         """
         technical = market_data.get("technical", {})
         rsi = technical.get("rsi", 50)
-        bb_position = technical.get("bb_position", 50)
+        bb_position = technical.get("bb_position", 0.5)
         trend_direction = technical.get("trend_direction", "sideways")
         trend_strength = technical.get("trend_strength", 0.3)
         macd_hist = technical.get("macd_hist", 0)
@@ -317,9 +317,11 @@ class DynamicSellCondition:
             risk_signals.append(f"MACD转空({macd_hist:+.4f})")
             risk_score += 0.6
 
-        # 浮盈大幅回撤检查
-        if pnl_percent < -c.risk_drawdown_percent * 100 and pnl_percent > 0:
-            risk_signals.append(f"浮盈大幅回撤({pnl_percent:.2f}%)")
+        # 浮盈大幅回撤检查：有盈利但利润回吐超过阈值
+        if pnl_percent > 0 and pnl_percent < c.risk_drawdown_percent * 100:
+            risk_signals.append(
+                f"浮盈大幅回撤({pnl_percent:.2f}% < {c.risk_drawdown_percent * 100:.1f}%)"
+            )
             risk_score += 0.5
 
         # 判断是否触发风险规避
