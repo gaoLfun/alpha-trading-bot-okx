@@ -366,7 +366,9 @@ class AdaptiveTradingBot:
 
             if final_signal["action"] == "skip":
                 if has_position and not is_short_to_close:
-                    await self._update_stop_loss(current_price, position_data)
+                    await self._update_stop_loss(
+                        current_price, position_data, market_data
+                    )
                 logger.info("[决策] 跳过交易，等待下一个周期")
                 logger.info("=" * 60)
                 return
@@ -456,7 +458,7 @@ class AdaptiveTradingBot:
         if action == "skip":
             if has_position:
                 logger.info("[执行] HOLD信号 + 有持仓 -> 更新止损")
-                await self._update_stop_loss(current_price, position_data)
+                await self._update_stop_loss(current_price, position_data, market_data)
             return
 
         if action == "reduce":
@@ -495,7 +497,7 @@ class AdaptiveTradingBot:
                 logger.info("[执行] 安全模式: 无持仓 → 跳过（reduce 无仓可降）")
             # 有持仓时，即使跳过降低仓位，也应该更新止损
             if has_position:
-                await self._update_stop_loss(current_price, position_data)
+                await self._update_stop_loss(current_price, position_data, market_data)
             return
 
         # 类型断言
@@ -694,7 +696,10 @@ class AdaptiveTradingBot:
         await self._position_recovery.cancel_stop_loss_before_close()
 
     async def _update_stop_loss(
-        self, current_price: float, position_data: Dict[str, Any]
+        self,
+        current_price: float,
+        position_data: Dict[str, Any],
+        market_data: Dict[str, Any],
     ) -> None:
         """更新止损订单 - 真正的追踪止损"""
         position_side = position_data.get("side", "long")
@@ -707,27 +712,35 @@ class AdaptiveTradingBot:
         # === P1: 查询交易所实际止损单 ===
         existing_stop_id, exchange_stop_price = await self._get_existing_stop_order_id()
 
-        # === P2: 获取配置参数 ===
+        # === P2: 获取配置参数和ATR ===
         params = self.param_manager.get_current_params()
-        stop_loss_pct = params.get("stop_loss_percent", 0.005)  # 0.5%
-        stop_loss_profit_pct = params.get("stop_loss_profit_percent", 0.002)  # 0.2%
+        base_stop_loss_pct = params.get("stop_loss_percent", 0.005)
+        base_stop_loss_profit_pct = params.get("stop_loss_profit_percent", 0.002)
+        technical = market_data.get("technical", {})
+        atr_percent = technical.get("atr_percent", 0)
+        atr_adjusted_stop_pct = max(atr_percent / 20, base_stop_loss_pct)
+        atr_adjusted_profit_pct = max(atr_percent / 40, base_stop_loss_profit_pct)
+        logger.info(
+            f"[止损参数] ATR%={atr_percent:.1f}%, 基础止损={base_stop_loss_pct * 100:.2f}%, "
+            f"调整后止损={atr_adjusted_stop_pct * 100:.2f}%, 追踪={atr_adjusted_profit_pct * 100:.2f}%"
+        )
 
         # === P3: 计算新的止损价格 ===
         if position_side == "long":
             highest_price = self.position_manager.highest_price_since_entry
             if highest_price > 0:
-                new_stop_price = highest_price * (1 - stop_loss_profit_pct)  # 0.998
+                new_stop_price = highest_price * (1 - atr_adjusted_profit_pct)
             else:
-                new_stop_price = entry_price * (1 - stop_loss_pct)  # 0.995
+                new_stop_price = entry_price * (1 - atr_adjusted_stop_pct)
             logger.info(
                 f"[止损计算] 做多: 最高价={highest_price}, 止损={new_stop_price:.1f}"
             )
         else:
             lowest_price = self.position_manager.lowest_price_since_entry
             if lowest_price > 0:
-                new_stop_price = lowest_price * (1 + stop_loss_profit_pct)  # 1.002
+                new_stop_price = lowest_price * (1 + atr_adjusted_profit_pct)
             else:
-                new_stop_price = entry_price * (1 + stop_loss_pct)
+                new_stop_price = entry_price * (1 + atr_adjusted_stop_pct)
             logger.info(
                 f"[止损计算] 做空: 最低价={lowest_price}, 止损={new_stop_price:.1f}"
             )
@@ -735,9 +748,9 @@ class AdaptiveTradingBot:
         # === P4: 首次创建止损单 ===
         if not existing_stop_id:
             if position_side == "long":
-                initial_stop = entry_price * (1 - stop_loss_pct)  # 0.995
+                initial_stop = entry_price * (1 - atr_adjusted_stop_pct)
             else:
-                initial_stop = entry_price * (1 + stop_loss_pct)
+                initial_stop = entry_price * (1 + atr_adjusted_stop_pct)
             logger.info(f"[止损] 首次创建，初始止损: {initial_stop:.1f}")
             stop_order_id = await self._create_stop_loss_with_retry(
                 amount=amount,

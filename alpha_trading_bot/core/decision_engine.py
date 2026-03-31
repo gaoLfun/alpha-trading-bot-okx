@@ -42,12 +42,32 @@ class DecisionEngine:
                 "strategy": "safe_mode",
             }
         if ai_signal.upper() == "BUY":
-            action = "open"
-            reason = "AI信号买入"
+            atr_percent = technical.get("atr_percent", 0)
+            if atr_percent > 40:
+                logger.warning(
+                    f"[高波动] ATR%={atr_percent:.1f}% > 40%，高波动市场禁止开仓"
+                )
+                action = "skip"
+                reason = "高波动市场禁止开仓"
+            else:
+                action = "open"
+                reason = "AI信号买入"
         elif ai_signal.upper() == "SHORT":
             has_position = market_data.get("has_position", False)
+            rsi = technical.get("rsi", 50)
+            atr_percent = technical.get("atr_percent", 0)
 
-            if not has_position and self._config.trading.allow_short_selling:
+            if atr_percent > 40:
+                logger.warning(
+                    f"[高波动] ATR%={atr_percent:.1f}% > 40%，高波动市场禁止做空"
+                )
+                action = "skip"
+                reason = "高波动市场禁止做空"
+            elif rsi < 40:
+                logger.warning(f"[RSI超卖] RSI={rsi:.1f} < 40，RSI超卖禁止做空")
+                action = "skip"
+                reason = "RSI超卖禁止做空"
+            elif not has_position and self._config.trading.allow_short_selling:
                 action = "sell"
                 reason = "AI信号做空"
             elif has_position:
@@ -71,9 +91,21 @@ class DecisionEngine:
                     reason = "AI信号卖出"
         elif ai_signal.upper() in ["SELL", "SHORT"]:
             has_position = market_data.get("has_position", False)
+            rsi = technical.get("rsi", 50)
+            atr_percent = technical.get("atr_percent", 0)
 
             if ai_signal.upper() == "SHORT":
-                if not has_position and self._config.trading.allow_short_selling:
+                if atr_percent > 40:
+                    logger.warning(
+                        f"[高波动] ATR%={atr_percent:.1f}% > 40%，高波动市场禁止做空"
+                    )
+                    action = "skip"
+                    reason = "高波动市场禁止做空"
+                elif rsi < 40:
+                    logger.warning(f"[RSI超卖] RSI={rsi:.1f} < 40，RSI超卖禁止做空")
+                    action = "skip"
+                    reason = "RSI超卖禁止做空"
+                elif not has_position and self._config.trading.allow_short_selling:
                     action = "sell"
                     reason = "AI信号做空"
                 elif has_position:
