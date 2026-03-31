@@ -123,7 +123,30 @@ class DecisionEngine:
                     reason = "AI信号卖出"
 
         else:
-            if selected.signal.upper() != "HOLD":
+            # AI 信号是 HOLD 时的处理
+            if ai_signal.upper() == "HOLD":
+                logger.info("[决策] AI信号为HOLD，检查是否需要跳过")
+                # ATR > 40% 时完全停仓
+                atr_percent = technical.get("atr_percent", 0)
+                if atr_percent > 40:
+                    logger.warning(
+                        f"[高波动] ATR%={atr_percent:.1f}% > 40%，HOLD信号下完全停仓"
+                    )
+                    action = "skip"
+                    reason = f"AI-HOLD+高波动停仓(ATR={atr_percent:.1f}%)"
+                else:
+                    # AI HOLD + 无明确策略信号 → skip
+                    if selected.signal.upper() == "HOLD":
+                        action = "skip"
+                        reason = "AI和策略都是HOLD"
+                    else:
+                        # AI HOLD 但策略有信号 → 降级处理
+                        logger.warning(
+                            f"[决策] AI-HOLD但策略={selected.signal}，保守处理"
+                        )
+                        action = "skip"
+                        reason = f"AI-HOLD覆盖策略({selected.signal})"
+            elif selected.signal.upper() != "HOLD":
                 action = "open" if selected.signal.upper() == "BUY" else "close"
                 reason = f"策略信号: {selected.signal}"
             else:
