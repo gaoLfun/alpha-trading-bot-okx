@@ -40,7 +40,7 @@ class BuyConditionsConfig:
     # 常规模式
     regular_trend_strength_min: float = 0.2
     regular_rsi_max: float = 65
-    regular_bb_position_max: float = 65
+    regular_bb_position_max: float = 0.65
     regular_adx_min: float = 15
     regular_momentum_min: float = 0.005
 
@@ -49,7 +49,7 @@ class BuyConditionsConfig:
     oversold_rsi_max: float = 30
     oversold_momentum_min: float = 0.005
     oversold_trend_strength_min: float = 0.1
-    oversold_bb_position_max: float = 45
+    oversold_bb_position_max: float = 0.45
     oversold_position_factor: float = 0.5
 
     # 强势支撑模式
@@ -83,8 +83,8 @@ class SellConditionsConfig:
     # 风险规避
     risk_rsi_overbought: float = 80
     risk_rsi_high: float = 75
-    risk_bb_position_max: float = 90
-    risk_bb_position_high: float = 85
+    risk_bb_position_max: float = 0.90
+    risk_bb_position_high: float = 0.85
     risk_trend_down_strength: float = 0.4
     risk_macd_negative: float = -0.002
     risk_drawdown_percent: float = 0.01

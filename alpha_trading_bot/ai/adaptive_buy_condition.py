@@ -38,7 +38,7 @@ class BuyConditions:
     # 常规模式参数
     regular_trend_strength_min: float = 0.15
     regular_rsi_max: float = 70
-    regular_bb_position_max: float = 70
+    regular_bb_position_max: float = 0.70
     regular_adx_min: float = 15
     regular_momentum_min: float = 0.003
 
@@ -47,7 +47,7 @@ class BuyConditions:
     oversold_rsi_max: float = 38  # 35→38，适度放宽超卖阈值
     oversold_momentum_min: float = 0.004  # 0.005→0.004，小幅降低动量要求
     oversold_trend_strength_min: float = 0.12  # 0.15→0.12，小幅降低趋势要求
-    oversold_bb_position_max: float = 42  # 40→42，轻微放宽布林带位置
+    oversold_bb_position_max: float = 0.42  # 0.40→0.42，轻微放宽布林带位置
     oversold_position_factor: float = 0.55  # 0.5→0.55，轻微提高仓位
 
     # 强势支撑模式参数
@@ -271,7 +271,7 @@ class AdaptiveBuyCondition:
             base_confidence += 0.08
         if checks["macd"]:
             base_confidence += 0.07
-        if checks["bb"] and bb_position < 50:
+        if checks["bb"] and bb_position < 0.50:
             base_confidence += 0.05
         if checks["momentum"] and recent_change > 0.01:
             base_confidence += 0.08
@@ -362,7 +362,7 @@ class AdaptiveBuyCondition:
             base_confidence += 0.07
 
         # 布林带低位加分
-        if bb_position < 35:
+        if bb_position < 0.35:
             base_confidence += 0.08
 
             base_confidence -= 0.15  # 下跌趋势太强劲

@@ -48,8 +48,8 @@ class SellConditions:
     # 风险规避参数
     risk_rsi_overbought: float = 80
     risk_rsi_high: float = 75
-    risk_bb_position_max: float = 90
-    risk_bb_position_high: float = 85
+    risk_bb_position_max: float = 0.90
+    risk_bb_position_high: float = 0.85
     risk_trend_down_strength: float = 0.4  # 趋势转空强度阈值
     risk_macd_negative: float = -0.002  # MACD转空阈值
     risk_drawdown_percent: float = 0.01  # 浮盈回撤阈值
