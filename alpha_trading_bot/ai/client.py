@@ -318,6 +318,10 @@ class AIClient:
                     if confidence is not None
                     else "N/A"
                 )
+                # 强制要求标准置信度：None 时使用默认 0.50 而非保留 None
+                if confidence_normalized is None:
+                    confidence_normalized = 0.50
+                    logger.warning(f"[AI响应] {provider}: 置信度解析失败，使用默认0.50")
                 logger.info(f"[AI响应] {provider}: 信号={signal}, 置信度={conf_str}")
             except Exception as e:
                 logger.error(f"[AI解析错误] {provider}: {e}")

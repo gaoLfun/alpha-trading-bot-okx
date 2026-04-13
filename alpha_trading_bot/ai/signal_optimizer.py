@@ -278,13 +278,17 @@ class SignalOptimizer:
         if atr_pct == 0 and len(self.price_history) >= 2:
             recent_changes = []
             for i in range(1, min(len(self.price_history), 5)):
-                change = (
-                    abs(self.price_history[-i] - self.price_history[-i - 1])
-                    / self.price_history[-i - 1]
-                )
-                recent_changes.append(change)
+                prev_price = self.price_history[-i - 1]
+                # 避免除零：只处理有效价格
+                if prev_price > 0:
+                    change = abs(self.price_history[-i] - prev_price) / prev_price
+                    recent_changes.append(change)
             if recent_changes:
                 atr_pct = sum(recent_changes) / len(recent_changes)
+            else:
+                # 所有价格变化都为0或prev_price为0，跳过波动率调整
+                logger.debug("价格无变化或无效价格，跳过波动率调整")
+                return confidence
 
         # 高波动环境
         if atr_pct > self.config.high_volatility_threshold:

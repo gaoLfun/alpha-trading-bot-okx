@@ -131,17 +131,6 @@ class ConsensusBoostedFusion:
                 strategy_used=self.config.strategy.value,
                 details={"reason": "no signals"},
             )
-            logger.warning("[融合] 无有效信号，返回hold")
-            return FusionResult(
-                signal="hold",
-                confidence=0.6,
-                scores={"buy": 0, "hold": 1, "sell": 0, "short": 0},
-                threshold=threshold or self.config.threshold,
-                is_valid=False,
-                consensus_ratio=0.0,
-                strategy_used=self.config.strategy.value,
-                details={"reason": "no signals"},
-            )
 
         # 计算一致性比例
         signal_counts = self._count_signals(signals)
@@ -494,10 +483,7 @@ class ConsensusBoostedFusion:
 
         max_sig = max(weighted_scores, key=weighted_scores.get)
 
-        if max_sig == "hold":
-            boost_factor = 1.0
-            boost_reason = "HOLD信号不强化"
-        elif consensus_ratio >= 1.0:
+        if consensus_ratio >= 1.0:
             boost_factor = self.config.consensus_boost_full
             boost_reason = f"全部一致({max_sig})，强化{boost_factor}x"
         elif consensus_ratio >= self.config.partial_consensus_threshold:
@@ -586,18 +572,13 @@ class ConsensusBoostedFusion:
 
         if self.config.buy_bias > 1.0:
             buy_score = weighted_scores.get("buy", 0)
-
-        if self.config.buy_bias > 1.0:
-            buy_score = weighted_scores.get("buy", 0)
             hold_score = weighted_scores.get("hold", 0)
-            # 如果buy得分在hold的85%以内，给buy一个偏好加成
             if hold_score > 0 and buy_score >= hold_score * 0.85:
                 weighted_scores["buy"] *= self.config.buy_bias
                 logger.info(
                     f"[融合] 买入偏好触发: buy={buy_score:.3f}, hold={hold_score:.3f}, "
                     f"偏好系数={self.config.buy_bias}x"
                 )
-                # 重新归一化
                 total = sum(weighted_scores.values())
                 if total > 0:
                     for sig in weighted_scores:
