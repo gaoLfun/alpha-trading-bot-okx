@@ -54,67 +54,53 @@ class AdaptiveTradingBot:
         self._init_adaptive_components()
 
     def _init_adaptive_components(self) -> None:
-        """初始化自适应组件"""
-        from ..ai.adaptive import (
-            AdaptiveParameterManager,
-            MarketRegimeDetector,
-            PerformanceTracker,
-            AdaptiveRulesEngine,
+        """初始化自适应组件 - 使用 Manager 类提供统一接口"""
+        from .managers import (
+            MarketRegimeManager,
+            StrategyExecutionManager,
+            RiskControlManager,
+            ParameterManager,
+            LearningManager,
         )
-        from ..ai.adaptive.strategy_library import StrategyLibrary
-        from ..ai.adaptive.strategy_selector import AdaptiveStrategyManager
-        from ..ai.adaptive.risk_manager import RiskControlManager, RiskConfig
         from ..ai.optimizer import ConfigUpdater
+        from ..ai.adaptive.risk_manager import RiskConfig
+        from ..ai.adaptive import AdaptiveRulesEngine
 
-        from ..ai.ml.ml_data_manager import MLDataManager, get_ml_data_manager
-        from ..ai.ml.adaptive_weight_optimizer import (
-            AdaptiveWeightOptimizer,
-            get_weight_optimizer,
-        )
-        from ..ai.ml.learning_integrator import (
-            MLLearningIntegrator,
-            SimpleLearningLoop,
-            get_learning_integrator,
-        )
-
-        self.param_manager = AdaptiveParameterManager()
-        self.regime_detector = MarketRegimeDetector()
-        self.performance_tracker = PerformanceTracker()
-        self.rules_engine = AdaptiveRulesEngine()
-        self.strategy_library = StrategyLibrary()
-        self.strategy_manager = AdaptiveStrategyManager()
-
-        risk_config = RiskConfig(
+        self.market_manager = MarketRegimeManager()
+        self.strategy_manager = StrategyExecutionManager()
+        self.risk_manager = RiskControlManager(
             hard_stop_loss_percent=0.05,
             max_position_percent=0.1,
             circuit_breaker_threshold=0.03,
         )
-        self.risk_manager = RiskControlManager(risk_config)
+        self.param_manager = ParameterManager()
+        self.learning_manager = LearningManager()
 
         self.config_updater = ConfigUpdater()
+        self.param_manager.set_config_updater(self.config_updater)
+        self.rules_engine = AdaptiveRulesEngine()
 
-        self.ml_data_manager = get_ml_data_manager()
-        self.weight_optimizer = get_weight_optimizer()
-
-        from ..ai.ml.signal_backtest import get_backtest_learner
-
-        self.backtest_learner = get_backtest_learner()
-        self.simple_learning = SimpleLearningLoop()
+        self._strategy_weight_manager = None
+        self._ml_optimization_task = None
+        self._decision_engine = None
+        self._param_applier = None
+        self._take_profit_calculator = None
 
         from .strategy_weight_manager import StrategyWeightManager
 
         self._strategy_weight_manager = StrategyWeightManager(
-            self.strategy_library, self.simple_learning
+            self.strategy_manager._strategy_library,
+            self.learning_manager._learning_loop,
         )
 
         from .ml_optimization_task import MLOptimizationTask
 
         self._ml_optimization_task = MLOptimizationTask(
             self,
-            self.performance_tracker,
-            self.backtest_learner,
-            self.simple_learning,
-            self.weight_optimizer,
+            self.market_manager._performance_tracker,
+            self.learning_manager._backtest_learner,
+            self.learning_manager._learning_loop,
+            self.learning_manager._weight_optimizer,
         )
 
         from .decision_engine import DecisionEngine
@@ -127,7 +113,7 @@ class AdaptiveTradingBot:
         self._param_applier = ParamApplier(self.config, self._ai_client)
         self._take_profit_calculator = TakeProfitCalculator(self.config)
 
-        logger.info("[自适应] 所有组件初始化完成（含ML学习模块 + 回测学习）")
+        logger.info("[自适应] 所有组件初始化完成（含Manager分层架构）")
 
     @property
     def exchange(self):

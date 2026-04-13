@@ -25,7 +25,7 @@ class StrategyExecutionManager:
         from ..ai.adaptive.strategy_selector import AdaptiveStrategyManager
 
         self._strategy_library = StrategyLibrary()
-        self._strategy_manager = AdaptiveStrategyManager()
+        self._strategy_selector = AdaptiveStrategyManager()
         self._current_strategy: Optional[str] = None
         logger.info("[StrategyExecutionManager] 初始化完成")
 
@@ -51,7 +51,7 @@ class StrategyExecutionManager:
         elif regime == "ranging":
             strategy = "breakout"
         else:
-            strategy = self._strategy_manager.select_best()
+            strategy = self._strategy_selector.select_best()
 
         self._current_strategy = strategy
         return strategy
