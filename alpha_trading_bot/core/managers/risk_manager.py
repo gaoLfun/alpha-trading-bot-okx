@@ -50,8 +50,10 @@ class RiskControlManager:
         max_position_percent: float = 0.1,
         circuit_breaker_threshold: float = 0.03,
     ) -> None:
-        from ..ai.adaptive.risk_manager import RiskControlManager as AIRiskManager
-        from ..ai.adaptive.risk_manager import RiskConfig
+        from alpha_trading_bot.ai.adaptive.risk_manager import (
+            RiskControlManager as AIRiskManager,
+        )
+        from alpha_trading_bot.ai.adaptive.risk_manager import RiskConfig
 
         risk_config = RiskConfig(
             hard_stop_loss_percent=hard_stop_loss_percent,

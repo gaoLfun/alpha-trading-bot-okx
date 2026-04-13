@@ -31,7 +31,7 @@ class ParameterManager:
     """
 
     def __init__(self) -> None:
-        from ..ai.adaptive import AdaptiveParameterManager
+        from alpha_trading_bot.ai.adaptive import AdaptiveParameterManager
 
         self._param_manager = AdaptiveParameterManager()
         self._config_updater: Optional[Any] = None

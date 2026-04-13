@@ -22,10 +22,12 @@ class LearningManager:
     """
 
     def __init__(self) -> None:
-        from ..ai.ml.ml_data_manager import get_ml_data_manager
-        from ..ai.ml.adaptive_weight_optimizer import get_weight_optimizer
-        from ..ai.ml.signal_backtest import get_backtest_learner
-        from ..ai.ml.learning_integrator import SimpleLearningLoop
+        from alpha_trading_bot.ai.ml.ml_data_manager import get_ml_data_manager
+        from alpha_trading_bot.ai.ml.adaptive_weight_optimizer import (
+            get_weight_optimizer,
+        )
+        from alpha_trading_bot.ai.ml.signal_backtest import get_backtest_learner
+        from alpha_trading_bot.ai.ml.learning_integrator import SimpleLearningLoop
 
         self._ml_data_manager = get_ml_data_manager()
         self._weight_optimizer = get_weight_optimizer()

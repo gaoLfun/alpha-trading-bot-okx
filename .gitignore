@@ -167,3 +167,8 @@ cache/
 # .opencode
 .opencode
 
+# openspec
+/openspec/
+
+# .github
+.github

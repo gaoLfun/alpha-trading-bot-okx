@@ -21,8 +21,10 @@ class StrategyExecutionManager:
     """
 
     def __init__(self) -> None:
-        from ..ai.adaptive.strategy_library import StrategyLibrary
-        from ..ai.adaptive.strategy_selector import AdaptiveStrategyManager
+        from alpha_trading_bot.ai.adaptive.strategy_library import StrategyLibrary
+        from alpha_trading_bot.ai.adaptive.strategy_selector import (
+            AdaptiveStrategyManager,
+        )
 
         self._strategy_library = StrategyLibrary()
         self._strategy_selector = AdaptiveStrategyManager()

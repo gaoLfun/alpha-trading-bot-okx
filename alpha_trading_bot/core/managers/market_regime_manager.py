@@ -37,7 +37,7 @@ class MarketRegimeManager:
     """
 
     def __init__(self) -> None:
-        from ..ai.adaptive import (
+        from alpha_trading_bot.ai.adaptive import (
             MarketRegimeDetector,
             PerformanceTracker,
         )
